@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+ tensorflow:
+  build: .
+  ports:
+   - 8888:8888
+  volumes:
+   - ../:/connectionist
+  tty: true
+  deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

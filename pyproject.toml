@@ -1,0 +1,13 @@
+[project]
+name = "connectionist"
+description = "Tools for classical connectionist models of reading with TensorFlow"
+version = "0.1.0"
+authors = [
+    { name = "Jason Lo", email = "lcmjlo@gmail.com" }
+]
+dependencies = ["tensorflow==2.*"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+

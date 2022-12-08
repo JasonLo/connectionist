@@ -1,0 +1,34 @@
+{
+    "name": "connectionist",
+    "dockerComposeFile": "docker-compose.yml",
+    "service": "tensorflow",
+    "workspaceFolder": "/connectionist",
+    "shutdownAction": "stopCompose",
+    "extensions": [
+        "github.copilot",
+        "DavidAnson.vscode-markdownlint",
+        "Gruntfuggly.todo-tree",
+        "mhutchie.git-graph",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter-keymap",
+        "ms-toolsai.jupyter-renderers",
+        "ms-toolsai.jupyter",
+        "ms-vscode.live-server",
+        "hediet.vscode-drawio"
+    ],
+    "settings": {
+        "python.formatting.provider": "black",
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": true,
+        "python.linting.pylintPath": "/usr/local/bin/pylint",
+        "python.pythonPath": "/usr/bin/python3",
+        "terminal.integrated.defaultProfile.linux": "bash"
+    },
+    "features": {
+        "git": {
+            "version": "latest",
+            "ppa": false
+        }
+    }
+}
