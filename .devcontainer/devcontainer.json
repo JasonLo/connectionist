@@ -1,9 +1,15 @@
 {
     "name": "connectionist",
-    "dockerComposeFile": "docker-compose.yml",
-    "service": "tensorflow",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "runArgs": [
+        "--gpus",
+        "all"
+    ],
+    "workspaceMount": "source=${localWorkspaceFolder},target=/connectionist,type=bind,consistency=cached",
     "workspaceFolder": "/connectionist",
-    "shutdownAction": "stopCompose",
+    "remoteUser": "root",
     "extensions": [
         "github.copilot",
         "DavidAnson.vscode-markdownlint",
@@ -30,5 +36,6 @@
             "version": "latest",
             "ppa": false
         }
-    }
+    },
+    "postCreateCommand": "bash .devcontainer/post_create.sh"
 }
