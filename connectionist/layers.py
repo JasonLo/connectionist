@@ -202,6 +202,9 @@ class MultiInputTimeAveraging(tf.keras.layers.Layer):
 
         return outputs
 
+    def reset_states(self) -> None:
+        self.states = None
+
     def get_config(self):
         config = super().get_config()
         config.update(
