@@ -285,3 +285,143 @@ class TimeAveragedRNN(tf.keras.layers.Layer):
         outputs = outputs.stack()  # (seq_len, batch_size, units)
         outputs = tf.transpose(outputs, [1, 0, 2])  # (batch_size, seq_len, units)
         return outputs
+
+
+class PMSPCell(tf.keras.layers.Layer):
+    """RNN cell for PMSP model.
+
+    See Plaut, McClelland, Seidenberg and Patterson (1996), simulation 3.
+    """
+
+    def __init__(self, tau, h_units, p_units, c_units):
+        super().__init__()
+        self.tau = tau
+        self.h_units = h_units
+        self.p_units = p_units
+        self.c_units = c_units
+
+    def build(self, input_shape):
+        # Hidden layer
+        self.o2h = tf.keras.layers.Dense(
+            self.h_units, activation=None, use_bias=False, name="o2h"
+        )  # w_oh
+        self.p2h = tf.keras.layers.Dense(
+            self.h_units, activation=None, use_bias=False, name="p2h"
+        )  # w_ph
+        self.time_averaging_h = MultiInputTimeAveraging(
+            tau=self.tau,
+            average_at="after_activation",
+            activation="sigmoid",
+            name="ta_h",
+        )  # bias_h and the time averaging mechanism
+
+        # Phonology layer
+        self.h2p = tf.keras.layers.Dense(
+            self.p_units, activation=None, use_bias=False, name="h2p"
+        )  # w_hp
+        self.p2p = tf.keras.layers.Dense(
+            self.p_units, activation=None, use_bias=False, name="p2p"
+        )  # w_pp
+        self.c2p = tf.keras.layers.Dense(
+            self.p_units, activation=None, use_bias=False, name="c2p"
+        )  # w_cp
+        self.time_averaging_p = MultiInputTimeAveraging(
+            tau=self.tau,
+            average_at="after_activation",
+            activation="sigmoid",
+            name="ta_p",
+        )  # bias_p and the time averaging mechanism
+
+        # Cleanup layer
+        self.p2c = TimeAveragedDense(
+            tau=self.tau,
+            average_at="after_activation",
+            units=self.c_units,
+            activation="sigmoid",
+            name="p2c",
+        )  # w_pc, bias_c, and the time averaging mechanism
+        self.built = True
+
+    def call(self, last_o, last_h, last_p, last_c):
+        # Hidden layer activation
+        # h_t = tau(act(o_{t-1} @ w_oh + p_{t-1} @ w_ph + bias_h)) + (1 - tau) * h_{t-1}
+        oh = self.o2h(last_o)
+        ph = self.p2h(last_p)
+        h = self.time_averaging_h([oh, ph])
+
+        # Phonology layer activation
+        # p_t = tau(act(h_{t-1} @ w_hp + p_{t-1} @ w_pp + c_{t-1} @ w_cp + bias_p)) + (1 - tau) * p_{t-1}
+        hp = self.h2p(last_h)
+        pp = self.p2p(last_p)
+        cp = self.c2p(last_c)
+        p = self.time_averaging_p([hp, pp, cp])
+
+        # Cleanup layer activation
+        # c_t = tau(act(p_{t-1} @ w_pc + bias_c)) + (1 - tau) * c_{t-1}
+        c = self.p2c(last_p)
+
+        return h, p, c
+
+    def reset_states(self):  # TODO: This need another name?
+        """Reset time averaging history."""
+        self.time_averaging_p.reset_states()
+        self.time_averaging_h.reset_states()
+        self.p2c.reset_states()
+
+
+class PMSP(tf.keras.layers.Layer):
+    """PMSP sim 3 model.
+
+    See Plaut, McClelland, Seidenberg and Patterson (1996), simulation 3.
+    """
+
+    def __init__(self, tau, h_units, p_units, c_units) -> None:
+        super().__init__()
+        self.tau = tau
+        self.h_units = h_units
+        self.p_units = p_units
+        self.c_units = c_units
+
+    def build(self, input_shape):
+        self.cell = PMSPCell(
+            tau=self.tau,
+            h_units=self.h_units,
+            p_units=self.p_units,
+            c_units=self.c_units,
+        )
+        self.built = True
+
+    def call(self, inputs):
+        batch_size, max_ticks, o_units = inputs.shape
+
+        # Initialize states
+        o = tf.zeros((batch_size, o_units))
+        h = tf.zeros((batch_size, self.cell.h_units))
+        p = tf.zeros((batch_size, self.cell.p_units))
+        c = tf.zeros((batch_size, self.cell.c_units))
+
+        # Containers for outputs with shape (batch_size, max_ticks + 1, units)
+        outputs_h = tf.TensorArray(dtype=tf.float32, size=max_ticks + 1)
+        outputs_p = tf.TensorArray(dtype=tf.float32, size=max_ticks + 1)
+        outputs_c = tf.TensorArray(dtype=tf.float32, size=max_ticks + 1)
+
+        # Run RNN (Unrolling RNN Cell)
+        for t in range(max_ticks + 1):  # +1 because we have the initial state
+            h, p, c = self.cell(last_o=o, last_h=h, last_p=p, last_c=c)
+            outputs_h = outputs_h.write(t, h)
+            outputs_p = outputs_p.write(t, p)
+            outputs_c = outputs_c.write(t, c)
+
+            if t < max_ticks:
+                o = inputs[:, t]  # for next time tick
+
+        self.cell.reset_states()
+
+        outputs_h = outputs_h.stack()
+        outputs_p = outputs_p.stack()
+        outputs_c = outputs_c.stack()
+
+        outputs_h = tf.transpose(outputs_h, [1, 0, 2])
+        outputs_p = tf.transpose(outputs_p, [1, 0, 2])
+        outputs_c = tf.transpose(outputs_c, [1, 0, 2])
+        return outputs_h, outputs_p, outputs_c
