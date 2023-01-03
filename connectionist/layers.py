@@ -224,3 +224,64 @@ class MultiInputTimeAveraging(tf.keras.layers.Layer):
             }
         )
         return config
+
+
+class TimeAveragedRNNCell(tf.keras.layers.Layer):
+    def __init__(self, tau, units):
+        super().__init__()
+        self.tau = tau
+        self.units = units
+
+    def build(self, input_shape):
+        self.input_dense = tf.keras.layers.Dense(self.units, use_bias=False)  # w_xh
+        self.recurrent_dense = tf.keras.layers.Dense(self.units, use_bias=False)  # w_hh
+        self.time_averaging = MultiInputTimeAveraging(
+            tau=self.tau, average_at="after_activation", activation="sigmoid"
+        )  # "time-averaging mechanism" with multiple inputs
+        self.built = True
+
+    def call(self, inputs, states=None):
+        xh = self.input_dense(inputs)  # x @ w_xh
+
+        if states is None:
+            hh = tf.zeros_like(xh)
+        else:
+            hh = self.recurrent_dense(states)  # h @ w_hh
+
+        outputs = self.time_averaging(
+            [xh, hh]
+        )  # sigmoid (tau * (xh + hh + bias) + (1 - tau) * last activation)
+        return (
+            outputs,
+            outputs,
+        )  # Consistent with the RNN API, one for state and one for output
+
+    def reset_states(self):  # TODO: This need another name
+        self.time_averaging.reset_states()  # Reset the states of the time-averaging mechanism (last activation = None)
+
+
+class TimeAveragedRNN(tf.keras.layers.Layer):
+    def __init__(self, tau, units):
+        super().__init__()
+        self.tau = tau
+        self.units = units
+
+    def build(self, input_shape):
+        self.rnn_cell = TimeAveragedRNNCell(tau=self.tau, units=self.units)
+        self.built = True
+
+    def call(self, inputs):
+        max_ticks = inputs.shape[1]  # (batch_size, seq_len, input_dim)
+        outputs = tf.TensorArray(dtype=tf.float32, size=max_ticks)
+        states = None
+
+        for t in range(max_ticks):
+            this_tick_input = inputs[:, t, :]
+            states, output = self.rnn_cell(this_tick_input, states=states)
+            outputs = outputs.write(t, output)
+
+        # rnn_cell states persist across ticks, but not across batches/calls, so we need to reset rnn_cell here
+        self.rnn_cell.reset_states()
+        outputs = outputs.stack()  # (seq_len, batch_size, units)
+        outputs = tf.transpose(outputs, [1, 0, 2])  # (batch_size, seq_len, units)
+        return outputs
