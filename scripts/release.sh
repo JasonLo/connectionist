@@ -1,5 +1,10 @@
 #!/bin/sh
 
+if ["$1" = ""]; then
+    echo "Usage: release.sh major/minor/patch/a/b... (see hatch version --help for details)"
+    exit 1
+fi
+
 # Bump version with hatchling
 RELEASE_VERSION=`hatch version $1`
 
@@ -8,6 +13,10 @@ python3 -m build
 
 # Release to pypi
 python3 -m twine upload dist/*
+
+# Commit version bump
+git add connectionist/__about__.py
+git commit -m "Bump version to $RELEASE_VERSION"
 
 # Tag in Git
 git tag $RELEASE_VERSION -m "Release $RELEASE_VERSION"
