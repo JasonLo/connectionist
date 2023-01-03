@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Get release version
-RELEASE_VERSION=`grep version pyproject.toml | cut -d '"' -f 2`
+RELEASE_VERSION=`grep version connectionist/__about__.py | cut -d '"' -f 2`
 
 rm -r dist
 python3 -m build

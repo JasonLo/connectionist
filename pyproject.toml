@@ -1,7 +1,8 @@
 [project]
 name = "connectionist"
 description = "Tools for classical connectionist models of reading with TensorFlow"
-version = "0.0.0-alpha-7"
+readme = "README.md"
+dynamic = ["version"]
 authors = [
     { name = "Jason Lo", email = "lcmjlo@gmail.com" }
 ]
@@ -11,3 +12,5 @@ dependencies = ["tensorflow==2.*"]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.version]
+path = "connectionist/__about__.py"
