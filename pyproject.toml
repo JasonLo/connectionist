@@ -1,7 +1,7 @@
 [project]
 name = "connectionist"
 description = "Tools for classical connectionist models of reading with TensorFlow"
-version = "0.0.0-alpha-5"
+version = "0.0.0-alpha-6"
 authors = [
     { name = "Jason Lo", email = "lcmjlo@gmail.com" }
 ]
