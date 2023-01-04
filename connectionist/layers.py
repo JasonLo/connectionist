@@ -395,7 +395,6 @@ class PMSP(tf.keras.layers.Layer):
         batch_size, max_ticks, o_units = inputs.shape
 
         # Initialize states
-        o = tf.zeros((batch_size, o_units))
         h = tf.zeros((batch_size, self.cell.h_units))
         p = tf.zeros((batch_size, self.cell.p_units))
         c = tf.zeros((batch_size, self.cell.c_units))
@@ -406,14 +405,12 @@ class PMSP(tf.keras.layers.Layer):
         outputs_c = tf.TensorArray(dtype=tf.float32, size=max_ticks + 1)
 
         # Run RNN (Unrolling RNN Cell)
-        for t in range(max_ticks + 1):  # +1 because we have the initial state
+        for t in range(max_ticks):
+            o = inputs[:, t]
             h, p, c = self.cell(last_o=o, last_h=h, last_p=p, last_c=c)
             outputs_h = outputs_h.write(t, h)
             outputs_p = outputs_p.write(t, p)
             outputs_c = outputs_c.write(t, c)
-
-            if t < max_ticks:
-                o = inputs[:, t]  # for next time tick
 
         self.cell.reset_states()
 
