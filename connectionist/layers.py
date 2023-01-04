@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple, Union
 import tensorflow as tf
 
 
@@ -205,7 +205,7 @@ class MultiInputTimeAveraging(tf.keras.layers.Layer):
     def reset_states(self) -> None:
         self.states = None
 
-    def get_config(self):
+    def get_config(self) -> dict:
         config = super().get_config()
         config.update(
             {
@@ -227,12 +227,12 @@ class MultiInputTimeAveraging(tf.keras.layers.Layer):
 
 
 class TimeAveragedRNNCell(tf.keras.layers.Layer):
-    def __init__(self, tau, units):
+    def __init__(self, tau: float, units: int) -> None:
         super().__init__()
         self.tau = tau
         self.units = units
 
-    def build(self, input_shape):
+    def build(self, input_shape: tf.TensorShape) -> None:
         self.input_dense = tf.keras.layers.Dense(self.units, use_bias=False)  # w_xh
         self.recurrent_dense = tf.keras.layers.Dense(self.units, use_bias=False)  # w_hh
         self.time_averaging = MultiInputTimeAveraging(
@@ -240,7 +240,7 @@ class TimeAveragedRNNCell(tf.keras.layers.Layer):
         )  # "time-averaging mechanism" with multiple inputs
         self.built = True
 
-    def call(self, inputs, states=None):
+    def call(self, inputs: tf.Tensor, states=None) -> Tuple[tf.Tensor, tf.Tensor]:
         xh = self.input_dense(inputs)  # x @ w_xh
 
         if states is None:
@@ -256,21 +256,21 @@ class TimeAveragedRNNCell(tf.keras.layers.Layer):
             outputs,
         )  # Consistent with the RNN API, one for state and one for output
 
-    def reset_states(self):  # TODO: This need another name
+    def reset_states(self) -> None:  # TODO: Maybe need another name
         self.time_averaging.reset_states()  # Reset the states of the time-averaging mechanism (last activation = None)
 
 
 class TimeAveragedRNN(tf.keras.layers.Layer):
-    def __init__(self, tau, units):
+    def __init__(self, tau: float, units: int) -> None:
         super().__init__()
         self.tau = tau
         self.units = units
 
-    def build(self, input_shape):
+    def build(self, input_shape: tf.TensorShape) -> None:
         self.rnn_cell = TimeAveragedRNNCell(tau=self.tau, units=self.units)
         self.built = True
 
-    def call(self, inputs):
+    def call(self, inputs: tf.Tensor) -> tf.Tensor:
         max_ticks = inputs.shape[1]  # (batch_size, seq_len, input_dim)
         outputs = tf.TensorArray(dtype=tf.float32, size=max_ticks)
         states = None
@@ -293,14 +293,14 @@ class PMSPCell(tf.keras.layers.Layer):
     See Plaut, McClelland, Seidenberg and Patterson (1996), simulation 3.
     """
 
-    def __init__(self, tau, h_units, p_units, c_units):
+    def __init__(self, tau: float, h_units: int, p_units: int, c_units: int) -> None:
         super().__init__()
         self.tau = tau
         self.h_units = h_units
         self.p_units = p_units
         self.c_units = c_units
 
-    def build(self, input_shape):
+    def build(self, input_shape: tf.TensorShape) -> None:
         # Hidden layer
         self.o2h = tf.keras.layers.Dense(
             self.h_units, activation=None, use_bias=False, name="o2h"
@@ -342,7 +342,14 @@ class PMSPCell(tf.keras.layers.Layer):
         )  # w_pc, bias_c, and the time averaging mechanism
         self.built = True
 
-    def call(self, last_o, last_h, last_p, last_c):
+    def call(
+        self,
+        last_o: tf.Tensor,
+        last_h: tf.Tensor,
+        last_p: tf.Tensor,
+        last_c: tf.Tensor,
+        return_internals: bool = False,
+    ) -> Dict[str, tf.Tensor]:
         # Hidden layer activation
         # h_t = tau(act(o_{t-1} @ w_oh + p_{t-1} @ w_ph + bias_h)) + (1 - tau) * h_{t-1}
         oh = self.o2h(last_o)
@@ -360,7 +367,19 @@ class PMSPCell(tf.keras.layers.Layer):
         # c_t = tau(act(p_{t-1} @ w_pc + bias_c)) + (1 - tau) * c_{t-1}
         c = self.p2c(last_p)
 
-        return h, p, c
+        if return_internals:
+            return {
+                "h": h,
+                "p": p,
+                "c": c,
+                "oh": oh,
+                "ph": ph,
+                "hp": hp,
+                "pp": pp,
+                "cp": cp,
+            }
+
+        return {"h": h, "p": p, "c": c}
 
     def reset_states(self):  # TODO: This need another name?
         """Reset time averaging history."""
@@ -369,56 +388,72 @@ class PMSPCell(tf.keras.layers.Layer):
         self.p2c.reset_states()
 
 
-class PMSP(tf.keras.layers.Layer):
-    """PMSP sim 3 model.
+class PMSPLayer(tf.keras.layers.Layer):
+    """PMSP sim 3 model's layer.
 
     See Plaut, McClelland, Seidenberg and Patterson (1996), simulation 3.
     """
 
-    def __init__(self, tau, h_units, p_units, c_units) -> None:
+    def __init__(self, tau: float, h_units: int, p_units: int, c_units: int) -> None:
         super().__init__()
         self.tau = tau
         self.h_units = h_units
         self.p_units = p_units
         self.c_units = c_units
 
-    def build(self, input_shape):
+    def build(self, input_shape: tf.TensorShape) -> None:
         self.cell = PMSPCell(
             tau=self.tau,
             h_units=self.h_units,
             p_units=self.p_units,
             c_units=self.c_units,
         )
+
         self.built = True
 
-    def call(self, inputs):
-        batch_size, max_ticks, o_units = inputs.shape
+    def call(
+        self, inputs: tf.Tensor, return_internals: bool = False
+    ) -> Union[tf.Tensor, Dict[str, tf.Tensor]]:
 
-        # Initialize states
-        h = tf.zeros((batch_size, self.cell.h_units))
-        p = tf.zeros((batch_size, self.cell.p_units))
-        c = tf.zeros((batch_size, self.cell.c_units))
+        batch_size, max_ticks, _ = inputs.shape
 
         # Containers for outputs with shape (batch_size, max_ticks, units)
-        outputs_h = tf.TensorArray(dtype=tf.float32, size=max_ticks)
-        outputs_p = tf.TensorArray(dtype=tf.float32, size=max_ticks)
-        outputs_c = tf.TensorArray(dtype=tf.float32, size=max_ticks)
+        names = (
+            ["h", "p", "c", "oh", "ph", "hp", "pp", "cp"] if return_internals else ["p"]
+        )
+        tf_arrays = {
+            name: tf.TensorArray(dtype=tf.float32, size=max_ticks) for name in names
+        }
+
+        h = tf.zeros((batch_size, self.h_units))
+        p = tf.zeros((batch_size, self.p_units))
+        c = tf.zeros((batch_size, self.c_units))
 
         # Run RNN (Unrolling RNN Cell)
         for t in range(max_ticks):
             o = inputs[:, t]
-            h, p, c = self.cell(last_o=o, last_h=h, last_p=p, last_c=c)
-            outputs_h = outputs_h.write(t, h)
-            outputs_p = outputs_p.write(t, p)
-            outputs_c = outputs_c.write(t, c)
+
+            cell_outputs = self.cell(
+                last_o=o,
+                last_h=h,
+                last_p=p,
+                last_c=c,
+                return_internals=return_internals,
+            )
+            h, p, c = cell_outputs["h"], cell_outputs["p"], cell_outputs["c"]
+
+            # Store output arrays
+            for name in names:
+                tf_arrays[name] = tf_arrays[name].write(t, cell_outputs[name])
 
         self.cell.reset_states()
 
-        outputs_h = outputs_h.stack()
-        outputs_p = outputs_p.stack()
-        outputs_c = outputs_c.stack()
+        # Stack and transpose output arrays
+        for name in names:
+            tf_arrays[name] = tf_arrays[name].stack()
+            tf_arrays[name] = tf.transpose(tf_arrays[name], [1, 0, 2])
 
-        outputs_h = tf.transpose(outputs_h, [1, 0, 2])
-        outputs_p = tf.transpose(outputs_p, [1, 0, 2])
-        outputs_c = tf.transpose(outputs_c, [1, 0, 2])
-        return outputs_p
+        if return_internals:
+            return tf_arrays
+        else:
+            return tf_arrays["p"]
