@@ -399,7 +399,7 @@ class PMSP(tf.keras.layers.Layer):
         p = tf.zeros((batch_size, self.cell.p_units))
         c = tf.zeros((batch_size, self.cell.c_units))
 
-        # Containers for outputs with shape (batch_size, max_ticks + 1, units)
+        # Containers for outputs with shape (batch_size, max_ticks, units)
         outputs_h = tf.TensorArray(dtype=tf.float32, size=max_ticks)
         outputs_p = tf.TensorArray(dtype=tf.float32, size=max_ticks)
         outputs_c = tf.TensorArray(dtype=tf.float32, size=max_ticks)
