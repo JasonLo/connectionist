@@ -424,4 +424,4 @@ class PMSP(tf.keras.layers.Layer):
         outputs_h = tf.transpose(outputs_h, [1, 0, 2])
         outputs_p = tf.transpose(outputs_p, [1, 0, 2])
         outputs_c = tf.transpose(outputs_c, [1, 0, 2])
-        return outputs_h, outputs_p, outputs_c
+        return outputs_p
