@@ -1,12 +1,15 @@
 #!/bin/sh
 
 if ["$1" = ""]; then
-    echo "Usage: release.sh major/minor/patch/a/b... (see hatch version --help for details)"
+    echo "Usage: release.sh major/minor/patch... (see hatch version --help for details)"
     exit 1
 fi
 
 # Bump version with hatchling
-RELEASE_VERSION=`hatch version $1`
+hatch version $1
+
+# Get version number
+RELEASE_VERSION=`hatch version`
 
 rm -r dist
 python3 -m build
