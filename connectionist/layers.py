@@ -417,10 +417,11 @@ class PMSPLayer(tf.keras.layers.Layer):
 
         batch_size, max_ticks, _ = inputs.shape
 
-        # Containers for outputs with shape (batch_size, max_ticks, units)
         names = (
             ["h", "p", "c", "oh", "ph", "hp", "pp", "cp"] if return_internals else ["p"]
         )
+
+        # Containers for outputs with shape (batch_size, max_ticks, units)
         tf_arrays = {
             name: tf.TensorArray(dtype=tf.float32, size=max_ticks) for name in names
         }
