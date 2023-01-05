@@ -16,31 +16,38 @@ def check_shapes(donor: tf.keras.Model, recipient: tf.keras.Model) -> None:
 class SurgeryPlan:
     """A surgery plan for removing `damage` percent of the units in `target_layer`."""
 
-    target_layer: str
+    layer: str
     original_units: int
-    damage: float
+    shrink_rate: float
 
     def __post_init__(self):
         """Validate the surgery plan."""
 
-        assert (
-            0 <= self.damage <= 1
-        ), f"Damage must be between 0 and 1, got {self.damage}"
+        if not (0 < self.shrink_rate < 1):
+            raise ValueError(
+                f"Shrink rate must be between 0 and 1, got {self.shrink_rate}"
+            )
 
-        # Generate indices to keep
-        self.keep_idx = random.sample(
-            range(self.original_units), int(self.original_units * (1 - self.damage))
-        )
-        self.keep_n = len(self.keep_idx)
+        # Keeping `keep_n` units
+        self.keep_n = int(self.original_units * (1 - self.shrink_rate))
+        print(f"Keeping {self.keep_n} out of {self.original_units} orginal units")
+        if self.keep_n == 0:
+            raise ValueError(
+                f"Shrink rate {self.shrink_rate} is too high, no units left."
+            )
+
+        # Generate indices to keep (shared across all weigths)
+        self.keep_idx = sorted(random.sample(range(self.original_units), self.keep_n))
+        print(f"Keep indices are: {self.keep_idx}")
 
     def __repr__(self):
-        return f"SurgeryPlan(target_layer={self.target_layer}, original_units={self.original_units}, damage={self.damage}, keep_idx={self.keep_idx}, keep_n={self.keep_n})"
+        return f"SurgeryPlan(target_layer={self.layer}, original_units={self.original_units}, damage={self.shrink_rate}, keep_idx={self.keep_idx}, keep_n={self.keep_n})"
 
 
-def make_recipient(original_model, surgery_plan: SurgeryPlan, make_model_fn: Callable):
+def make_recipient(model, surgery_plan: SurgeryPlan, make_model_fn: Callable):
     """Make a recipient model according to surgery plan."""
 
-    config = original_model.get_config()
+    config = model.get_config()
 
     layer_to_config_key = {
         "hidden": "h_units",
@@ -48,7 +55,7 @@ def make_recipient(original_model, surgery_plan: SurgeryPlan, make_model_fn: Cal
         "cleanup": "c_units",
     }
 
-    k = layer_to_config_key[surgery_plan.target_layer]
+    k = layer_to_config_key[surgery_plan.layer]
     config[k] = surgery_plan.keep_n
     print(f"New config: {config}")
     return make_model_fn(**config)
@@ -118,7 +125,7 @@ class Surgeon:
         """Transplant all the weights from donor to recipient model."""
 
         # Execute lesion transplant (Move weights and remove a subset of units)
-        names, axis = donor.get_lesion_loc(self.plan.target_layer)
+        names, axis = donor.layer2weights(self.plan.layer)
 
         for name, ax in zip(names, axis):
             self.lesion_transplant(

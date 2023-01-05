@@ -1,6 +1,7 @@
 from typing import Dict, Union, Tuple, List
 import tensorflow as tf
 from connectionist.layers import PMSPLayer
+from connectionist.surgery import SurgeryPlan, Surgeon, make_recipient
 
 
 class PMSP(tf.keras.Model):
@@ -57,25 +58,25 @@ class PMSP(tf.keras.Model):
             "bias_c": "pmsp_cell/p2c/bias",
         }
 
-    def get_lesion_loc(self, target_layer: str) -> Tuple[List[str], List[int]]:
+    def layer2weights(self, layer: str) -> Tuple[List[str], List[int]]:
         """Get the lesion locations based on the target layer.
 
         Returns:
         - name abbrevations
-        - axis to slice on
+        - axis to correspond to the target layer
         """
 
-        assert target_layer in [
+        assert layer in [
             "hidden",
             "phonology",
             "cleanup",
-        ], f"Unknown target layer: {target_layer}, please choose from ['hidden', 'phonology', 'cleanup']"
+        ], f"Unknown target layer: {layer}, please choose from ['hidden', 'phonology', 'cleanup']"
 
-        if target_layer == "hidden":
+        if layer == "hidden":
             short_names = ["w_oh", "w_ph", "w_hp", "bias_h"]
             axes = [1, 1, 0, 0]
 
-        if target_layer == "phonology":
+        if layer == "phonology":
             short_names = [
                 "w_hp",
                 "w_pp",
@@ -87,9 +88,42 @@ class PMSP(tf.keras.Model):
             ]  # w_pp need both axis 0 and 1
             axes = [1, 1, 1, 0, 0, 0, 0]
 
-        if target_layer == "cleanup":
+        if layer == "cleanup":
             short_names = ["w_cp", "w_pc", "bias_c"]
             axes = [1, 0, 0]
 
         names = [self.abbreviations[short_name] for short_name in short_names]
         return names, axes
+
+    def get_units(self, layer: str) -> int:
+        """Get the units of the target layer.
+
+        Args:
+            layer: the target layer, choose from ['hidden', 'phonology', 'cleanup']
+        """
+
+        mapping = {
+            "hidden": self.pmsp.h_units,
+            "phonology": self.pmsp.p_units,
+            "cleanup": self.pmsp.c_units,
+        }
+        return mapping[layer]
+
+    def shrink_layer(self, layer: str, rate: float) -> None:
+        """Shrink the weights of the target layer.
+
+        Args:
+            layer: the target layer, choose from ['hidden', 'phonology', 'cleanup']
+            rate: the shrink rate
+        """
+
+        plan = SurgeryPlan(
+            layer=layer, original_units=self.get_units(layer), shrink_rate=rate
+        )
+        surgeon = Surgeon(surgery_plan=plan)
+
+        new_model = make_recipient(model=self, surgery_plan=plan, make_model_fn=PMSP)
+        new_model.build(input_shape=self._build_input_shape)
+
+        surgeon.transplant(donor=self, recipient=new_model)
+        return new_model
