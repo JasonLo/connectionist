@@ -1,6 +1,8 @@
 from typing import Dict, List, Optional, Tuple, Union
 import tensorflow as tf
 
+# TODO: add support for regularization
+
 
 def _time_averaging(
     x: tf.Tensor, tau: float, states: Optional[tf.Tensor] = None
@@ -256,7 +258,7 @@ class TimeAveragedRNNCell(tf.keras.layers.Layer):
             outputs,
         )  # Consistent with the RNN API, one for state and one for output
 
-    def reset_states(self) -> None:  # TODO: Maybe need another name
+    def reset_states(self) -> None:  # TODO: maybe need another name
         self.time_averaging.reset_states()  # Reset the states of the time-averaging mechanism (last activation = None)
 
 
@@ -381,7 +383,7 @@ class PMSPCell(tf.keras.layers.Layer):
 
         return {"h": h, "p": p, "c": c}
 
-    def reset_states(self):  # TODO: This need another name?
+    def reset_states(self):  # TODO: need another name?
         """Reset time averaging history."""
         self.time_averaging_p.reset_states()
         self.time_averaging_h.reset_states()
