@@ -1,4 +1,4 @@
-from typing import Dict, Union
+from typing import Dict, Union, Tuple, List
 import tensorflow as tf
 from connectionist.layers import PMSPLayer
 
@@ -32,3 +32,64 @@ class PMSP(tf.keras.Model):
         self, inputs: tf.Tensor, return_internals: bool = False
     ) -> Union[tf.Tensor, Dict[str, tf.Tensor]]:
         return self.pmsp(inputs, return_internals=return_internals)
+
+    def get_config(self) -> Dict[str, Union[float, int]]:
+        config = super().get_config()
+        config.update(
+            tau=self.pmsp.tau,
+            h_units=self.pmsp.h_units,
+            p_units=self.pmsp.p_units,
+            c_units=self.pmsp.c_units,
+        )
+        return config
+
+    @property
+    def abbreviations(self) -> Dict[str, str]:
+        return {
+            "w_oh": "pmsp_cell/o2h/kernel",
+            "w_ph": "pmsp_cell/p2h/kernel",
+            "w_hp": "pmsp_cell/h2p/kernel",
+            "w_pp": "pmsp_cell/p2p/kernel",
+            "w_cp": "pmsp_cell/c2p/kernel",
+            "w_pc": "pmsp_cell/p2c/kernel",
+            "bias_h": "pmsp_cell/ta_h/bias",
+            "bias_p": "pmsp_cell/ta_p/bias",
+            "bias_c": "pmsp_cell/p2c/bias",
+        }
+
+    def get_lesion_loc(self, target_layer: str) -> Tuple[List[str], List[int]]:
+        """Get the lesion locations based on the target layer.
+
+        Returns:
+        - name abbrevations
+        - axis to slice on
+        """
+
+        assert target_layer in [
+            "hidden",
+            "phonology",
+            "cleanup",
+        ], f"Unknown target layer: {target_layer}, please choose from ['hidden', 'phonology', 'cleanup']"
+
+        if target_layer == "hidden":
+            short_names = ["w_oh", "w_ph", "w_hp", "bias_h"]
+            axes = [1, 1, 0, 0]
+
+        if target_layer == "phonology":
+            short_names = [
+                "w_hp",
+                "w_pp",
+                "w_cp",
+                "w_pc",
+                "w_ph",
+                "bias_p",
+                "w_pp",
+            ]  # w_pp need both axis 0 and 1
+            axes = [1, 1, 1, 0, 0, 0, 0]
+
+        if target_layer == "cleanup":
+            short_names = ["w_cp", "w_pc", "bias_c"]
+            axes = [1, 0, 0]
+
+        names = [self.abbreviations[short_name] for short_name in short_names]
+        return names, axes
