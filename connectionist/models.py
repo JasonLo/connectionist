@@ -35,14 +35,12 @@ class PMSP(tf.keras.Model):
         return self.pmsp(inputs, return_internals=return_internals)
 
     def get_config(self) -> Dict[str, Union[float, int]]:
-        config = super().get_config()
-        config.update(
+        return dict(
             tau=self.pmsp.tau,
             h_units=self.pmsp.h_units,
             p_units=self.pmsp.p_units,
             c_units=self.pmsp.c_units,
         )
-        return config
 
     @property
     def abbreviations(self) -> Dict[str, str]:
@@ -123,7 +121,9 @@ class PMSP(tf.keras.Model):
         surgeon = Surgeon(surgery_plan=plan)
 
         new_model = make_recipient(model=self, surgery_plan=plan, make_model_fn=PMSP)
-        new_model.build(input_shape=self._build_input_shape)
+        new_model.build(
+            input_shape=self._saved_model_inputs_spec
+        )  # TODO: check tf version support for _saved_model_input_spec
 
         surgeon.transplant(donor=self, recipient=new_model)
         return new_model
