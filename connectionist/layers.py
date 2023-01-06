@@ -327,6 +327,10 @@ class PMSPCell(tf.keras.layers.Layer):
         self._validate_connections(connections)
         self.connections = connections
 
+    @property
+    def all_layers_names(self) -> List[str]:
+        return ["hidden", "phonology", "cleanup"]
+
     @staticmethod
     def _validate_connections(connections) -> None:
         s = set([letter for connection in connections for letter in connection])
@@ -369,7 +373,7 @@ class PMSPCell(tf.keras.layers.Layer):
             activation="sigmoid",
         )
 
-        for layer in ["hidden", "phonology", "cleanup"]:
+        for layer in self.all_layers_names:
             setattr(self, layer, create_layer(name=layer))
 
         self.built = True
@@ -398,9 +402,9 @@ class PMSPCell(tf.keras.layers.Layer):
             }
             return input_map[connection[0]]
 
-        internal_states = {}
+        layer_activations = {}
         inputs_to = {}
-        for layer in ["hidden", "phonology", "cleanup"]:
+        for layer in self.all_layers_names:
 
             # Layer inputs, e.g.: x @ w_{xy}
             inputs_to[layer] = {}
@@ -408,9 +412,17 @@ class PMSPCell(tf.keras.layers.Layer):
                 inputs_to[layer][conn] = get_input(conn) @ getattr(self, conn)
 
             # Layer activation
-            internal_states[layer] = getattr(self, layer)(inputs_to[layer].values())
+            layer_activations[layer] = getattr(self, layer)(inputs_to[layer].values())
 
-        return internal_states
+        if return_internals:
+            return {
+                **layer_activations,
+                **inputs_to["hidden"],
+                **inputs_to["phonology"],
+                **inputs_to["cleanup"],
+            }
+
+        return layer_activations
 
     def reset_states(self):  # TODO: need another name?
         """Reset time averaging history."""
