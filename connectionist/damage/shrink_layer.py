@@ -14,7 +14,7 @@ def check_shapes(donor: tf.keras.Model, recipient: tf.keras.Model) -> None:
 
 @dataclass
 class SurgeryPlan:
-    """A surgery plan for removing `damage` percent of the units in `target_layer`."""
+    """A surgery plan for removing shrink_rate amount of the units in `target_layer`."""
 
     layer: str
     original_units: int
@@ -75,7 +75,12 @@ def get_weights(model: tf.keras.Model, name: str) -> tf.Tensor:
 
 
 class Surgeon:
-    """A class for transplanting weights from one model to another."""
+    """A class for transplanting weights from one model to another.
+
+    Args:
+        surgery_plan: A surgery plan for the transplant (specifying where the damage happens).
+
+    """
 
     def __init__(self, surgery_plan: SurgeryPlan) -> None:
         self.plan = surgery_plan
@@ -108,7 +113,7 @@ class Surgeon:
         idx: List[int],
         axis: Union[int, Tuple[int]],
     ) -> None:
-        """Transplant weights from donor to recipient."""
+        """Transplant weights from donor to recipient in the weights that requires shrinking."""
 
         w_recipient = get_weights(recipient, name)
         w_donor = get_weights(donor, name)
@@ -128,7 +133,7 @@ class Surgeon:
     def simple_transplant(
         self, donor: tf.keras.Model, recipient: tf.keras.Model, name: str
     ) -> None:
-        """Transplant weights from donor to recipient."""
+        """Transplant weights from donor to recipient in weights that has matching shape."""
 
         w_recipient = get_weights(recipient, name)
         w_donor = get_weights(donor, name)
@@ -146,7 +151,7 @@ class Surgeon:
         """Transplant all the weights from donor to recipient model."""
 
         # Execute lesion transplant (Move weights and remove a subset of units)
-        names, axis = donor.layer2weights(self.plan.layer)
+        names, axis = donor.locate_connections(self.plan.layer)
 
         for name, ax in zip(names, axis):
             self.lesion_transplant(
