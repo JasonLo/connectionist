@@ -1,7 +1,7 @@
 dist
 .pypirc
 tmp.ipynb
-
+.vscode
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
