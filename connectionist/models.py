@@ -91,7 +91,7 @@ class PMSP(tf.keras.Model):
 
         if layer == "cleanup":
             short_names = ["w_cp", "w_pc", "bias_c"]
-            axes = [1, 0, 0]
+            axes = [0, 1, 0]
 
         names = [self.abbreviations[short_name] for short_name in short_names]
         return names, axes

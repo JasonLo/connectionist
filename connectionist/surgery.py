@@ -82,13 +82,23 @@ class Surgeon:
 
     @staticmethod
     def _validate_axis(
-        w_donor: tf.keras.Model, w_recipient: tf.keras.Model, axis: int
+        w_donor: tf.Tensor,
+        w_recipient: tf.Tensor,
+        axis: Union[int, Tuple[int], List[int]],
     ) -> None:
-        """Check if the axis match between donor and recipient."""
-        if not w_donor.shape[axis] == w_recipient.shape[axis]:
-            raise ValueError(
-                f"Shapes don't match at axis {axis}: {w_donor.shape} != {w_recipient.shape}"
-            )
+
+        # Check 2 axis transplants
+        if isinstance(axis, (list, tuple)):
+            if not len(axis) == 2:
+                raise ValueError(f"Axis must be of length 2, got {axis}")
+
+        # Check non self-connecting weights shapes
+        if isinstance(axis, int) and len(w_donor.shape) > 1:
+            match_ax = 1 - axis
+            if w_donor.shape[match_ax] != w_recipient.shape[match_ax]:
+                raise ValueError(
+                    f"In {w_donor.name}, shapes don't match on axis {match_ax}: {w_donor.shape=}, {w_recipient.shape=}"
+                )
 
     def lesion_transplant(
         self,
@@ -100,20 +110,15 @@ class Surgeon:
     ) -> None:
         """Transplant weights from donor to recipient."""
 
-        _is_single_axis = isinstance(axis, int)
-
         w_recipient = get_weights(recipient, name)
         w_donor = get_weights(donor, name)
-
-        # Validate non self-connecting weights
-        if len(w_donor.shape) > 1 and _is_single_axis:
-            self._validate_axis(w_donor, w_recipient, axis=1 - axis)
+        self._validate_axis(w_donor, w_recipient, axis=axis)
 
         print(
             f"Transplanting: {w_donor.name}:{w_donor.shape} -> {w_recipient.name}: {w_recipient.shape}"
         )
 
-        if _is_single_axis:
+        if isinstance(axis, int):
             w_recipient.assign(tf.gather(w_donor, indices=idx, axis=axis))
         else:
             w = tf.gather(w_donor, indices=idx, axis=axis[0])
