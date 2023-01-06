@@ -1,4 +1,5 @@
 from typing import Dict, List, Optional, Tuple, Union
+from functools import partial
 import tensorflow as tf
 
 # TODO: add support for regularization
@@ -335,47 +336,50 @@ class PMSPCell(tf.keras.layers.Layer):
                 "Connections must contain only letters in ['o', 'h', 'p', 'c']"
             )
 
+    def get_connection_shape(
+        self, connection: str, input_shape: tf.TensorShape
+    ) -> List[int]:
+
+        layer2units = {
+            "o": input_shape[-1],
+            "h": self.h_units,
+            "p": self.p_units,
+            "c": self.c_units,
+        }
+
+        return [layer2units[layer] for layer in connection]
+
     def build(self, input_shape: tf.TensorShape) -> None:
-        # Hidden layer
-        self.o2h = tf.keras.layers.Dense(
-            self.h_units, activation=None, use_bias=False, name="o2h"
-        )  # w_oh
-        self.p2h = tf.keras.layers.Dense(
-            self.h_units, activation=None, use_bias=False, name="p2h"
-        )  # w_ph
-        self.time_averaging_h = MultiInputTimeAveraging(
-            tau=self.tau,
-            average_at="after_activation",
-            activation="sigmoid",
-            name="ta_h",
-        )  # bias_h and the time averaging mechanism
 
-        # Phonology layer
-        self.h2p = tf.keras.layers.Dense(
-            self.p_units, activation=None, use_bias=False, name="h2p"
-        )  # w_hp
-        self.p2p = tf.keras.layers.Dense(
-            self.p_units, activation=None, use_bias=False, name="p2p"
-        )  # w_pp
-        self.c2p = tf.keras.layers.Dense(
-            self.p_units, activation=None, use_bias=False, name="c2p"
-        )  # w_cp
-        self.time_averaging_p = MultiInputTimeAveraging(
-            tau=self.tau,
-            average_at="after_activation",
-            activation="sigmoid",
-            name="ta_p",
-        )  # bias_p and the time averaging mechanism
+        for connection in self.connections:
+            setattr(
+                self,
+                connection,
+                self.add_weight(
+                    name=connection,
+                    shape=self.get_connection_shape(connection, input_shape),
+                ),
+            )
 
-        # Cleanup layer
-        self.p2c = TimeAveragedDense(
+        # layer block: Add bias, time-averaging and activation
+        create_layer = partial(
+            MultiInputTimeAveraging,
             tau=self.tau,
             average_at="after_activation",
-            units=self.c_units,
             activation="sigmoid",
-            name="p2c",
-        )  # w_pc, bias_c, and the time averaging mechanism
+        )
+
+        for layer in ["hidden", "phonology", "cleanup"]:
+            setattr(self, layer, create_layer(name=layer))
+
         self.built = True
+
+    def get_connections(self, layer: str) -> List[str]:
+        """Get connections that end with the given layer.
+
+        e.g., if layer = "hidden", return all connections that ends with "h", e.g.: ["oh", "ph"]
+        """
+        return [conn for conn in self.connections if conn.endswith(layer[0])]
 
     def call(
         self,
@@ -385,36 +389,28 @@ class PMSPCell(tf.keras.layers.Layer):
         last_c: tf.Tensor,
         return_internals: bool = False,
     ) -> Dict[str, tf.Tensor]:
-        # Hidden layer activation
-        # h_t = tau(act(o_{t-1} @ w_oh + p_{t-1} @ w_ph + bias_h)) + (1 - tau) * h_{t-1}
-        oh = self.o2h(last_o)
-        ph = self.p2h(last_p)
-        h = self.time_averaging_h([oh, ph])
-
-        # Phonology layer activation
-        # p_t = tau(act(h_{t-1} @ w_hp + p_{t-1} @ w_pp + c_{t-1} @ w_cp + bias_p)) + (1 - tau) * p_{t-1}
-        hp = self.h2p(last_h)
-        pp = self.p2p(last_p)
-        cp = self.c2p(last_c)
-        p = self.time_averaging_p([hp, pp, cp])
-
-        # Cleanup layer activation
-        # c_t = tau(act(p_{t-1} @ w_pc + bias_c)) + (1 - tau) * c_{t-1}
-        c = self.p2c(last_p)
-
-        if return_internals:
-            return {
-                "h": h,
-                "p": p,
-                "c": c,
-                "oh": oh,
-                "ph": ph,
-                "hp": hp,
-                "pp": pp,
-                "cp": cp,
+        def get_input(connection) -> tf.Tensor:
+            input_map = {
+                "o": last_o,
+                "h": last_h,
+                "p": last_p,
+                "c": last_c,
             }
+            return input_map[connection[0]]
 
-        return {"h": h, "p": p, "c": c}
+        internal_states = {}
+        inputs_to = {}
+        for layer in ["hidden", "phonology", "cleanup"]:
+
+            # Layer inputs, e.g.: x @ w_{xy}
+            inputs_to[layer] = {}
+            for conn in self.get_connections(layer):
+                inputs_to[layer][conn] = get_input(conn) @ getattr(self, conn)
+
+            # Layer activation
+            internal_states[layer] = getattr(self, layer)(inputs_to[layer].values())
+
+        return internal_states
 
     def reset_states(self):  # TODO: need another name?
         """Reset time averaging history."""
