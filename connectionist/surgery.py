@@ -1,4 +1,4 @@
-from typing import List, Callable
+from typing import List, Callable, Tuple, Union
 import random
 from dataclasses import dataclass
 import tensorflow as tf
@@ -80,29 +80,45 @@ class Surgeon:
     def __init__(self, surgery_plan: SurgeryPlan) -> None:
         self.plan = surgery_plan
 
+    @staticmethod
+    def _validate_axis(
+        w_donor: tf.keras.Model, w_recipient: tf.keras.Model, axis: int
+    ) -> None:
+        """Check if the axis match between donor and recipient."""
+        if not w_donor.shape[axis] == w_recipient.shape[axis]:
+            raise ValueError(
+                f"Shapes don't match at axis {axis}: {w_donor.shape} != {w_recipient.shape}"
+            )
+
     def lesion_transplant(
         self,
         donor: tf.keras.Model,
         recipient: tf.keras.Model,
         name: str,
         idx: List[int],
-        axis: int,
+        axis: Union[int, Tuple[int]],
     ) -> None:
         """Transplant weights from donor to recipient."""
+
+        _is_single_axis = isinstance(axis, int)
 
         w_recipient = get_weights(recipient, name)
         w_donor = get_weights(donor, name)
 
-        if len(w_donor.shape) > 1:  # Check weights only, not biases
-            should_match_ax = 1 - axis
-            assert (
-                w_donor.shape[should_match_ax] == w_recipient.shape[should_match_ax]
-            ), f"Shapes don't match at axis {should_match_ax}: {w_donor.shape} != {w_recipient.shape}"
+        # Validate non self-connecting weights
+        if len(w_donor.shape) > 1 and _is_single_axis:
+            self._validate_axis(w_donor, w_recipient, axis=1 - axis)
 
         print(
             f"Transplanting: {w_donor.name}:{w_donor.shape} -> {w_recipient.name}: {w_recipient.shape}"
         )
-        w_recipient.assign(tf.gather(w_donor, indices=idx, axis=axis))
+
+        if _is_single_axis:
+            w_recipient.assign(tf.gather(w_donor, indices=idx, axis=axis))
+        else:
+            w = tf.gather(w_donor, indices=idx, axis=axis[0])
+            w = tf.gather(w, indices=idx, axis=axis[1])
+            w_recipient.assign(w)
 
     def simple_transplant(
         self, donor: tf.keras.Model, recipient: tf.keras.Model, name: str

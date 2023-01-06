@@ -44,6 +44,8 @@ class PMSP(tf.keras.Model):
 
     @property
     def abbreviations(self) -> Dict[str, str]:
+        """Weights name abbrevations."""
+
         return {
             "w_oh": "pmsp_cell/o2h/kernel",
             "w_ph": "pmsp_cell/p2h/kernel",
@@ -56,7 +58,9 @@ class PMSP(tf.keras.Model):
             "bias_c": "pmsp_cell/p2c/bias",
         }
 
-    def layer2weights(self, layer: str) -> Tuple[List[str], List[int]]:
+    def layer2weights(
+        self, layer: str
+    ) -> Tuple[List[str], List[Union[int, Tuple[int]]]]:
         """Get the lesion locations based on the target layer.
 
         Returns:
@@ -77,14 +81,13 @@ class PMSP(tf.keras.Model):
         if layer == "phonology":
             short_names = [
                 "w_hp",
-                "w_pp",
+                "w_pp",  # w_pp need both axis 0 and 1
                 "w_cp",
                 "w_pc",
                 "w_ph",
                 "bias_p",
-                "w_pp",
-            ]  # w_pp need both axis 0 and 1
-            axes = [1, 1, 1, 0, 0, 0, 0]
+            ]
+            axes = [1, (0, 1), 1, 0, 0, 0]
 
         if layer == "cleanup":
             short_names = ["w_cp", "w_pc", "bias_c"]
@@ -122,7 +125,7 @@ class PMSP(tf.keras.Model):
 
         new_model = make_recipient(model=self, surgery_plan=plan, make_model_fn=PMSP)
         new_model.build(
-            input_shape=self._saved_model_inputs_spec
+            input_shape=self._saved_model_inputs_spec.shape
         )  # TODO: check tf version support for _saved_model_input_spec
 
         surgeon.transplant(donor=self, recipient=new_model)
