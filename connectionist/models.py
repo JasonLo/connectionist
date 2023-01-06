@@ -1,7 +1,7 @@
 from typing import Dict, Union, Tuple, List
 import tensorflow as tf
 from connectionist.layers import PMSPLayer
-from connectionist.surgery import SurgeryPlan, Surgeon, make_recipient
+from connectionist.damage.shrink_layer import SurgeryPlan, Surgeon, make_recipient
 
 
 class PMSP(tf.keras.Model):
@@ -58,9 +58,35 @@ class PMSP(tf.keras.Model):
             "bias_c": "pmsp_cell/p2c/bias",
         }
 
-    def layer2weights(
+    @property
+    def connections(self) -> Dict[str, Dict[str, Union[int, List[int]]]]:
+        """A map that shows which axis of a weight is connecting to a layer."""
+
+        return {
+            "hidden": {"w_oh": 1, "w_ph": 1, "w_hp": 0, "bias_h": 0},
+            "cleanup": {"w_cp": 0, "w_pc": 1, "bias_c": 0},
+            "phonology": {
+                "w_hp": 1,
+                "w_pp": [0, 1],
+                "w_cp": 1,
+                "w_pc": 0,
+                "w_ph": 0,
+                "bias_p": 0,
+            },
+        }
+
+    def _validate_layer(self, layer: str) -> None:
+        """Validate the target layer."""
+
+        layers = list(self.connections.keys())
+        if layer not in self.layers:
+            raise ValueError(
+                f"Unknown target layer: {layer}, please choose from {layers}"
+            )
+
+    def locate_connections(
         self, layer: str
-    ) -> Tuple[List[str], List[Union[int, Tuple[int]]]]:
+    ) -> Tuple[List[str], List[Union[int, List[int]]]]:
         """Get the lesion locations based on the target layer.
 
         Returns:
@@ -68,36 +94,14 @@ class PMSP(tf.keras.Model):
         - axis to correspond to the target layer
         """
 
-        assert layer in [
-            "hidden",
-            "phonology",
-            "cleanup",
-        ], f"Unknown target layer: {layer}, please choose from ['hidden', 'phonology', 'cleanup']"
+        connections = self.connections[layer]
 
-        if layer == "hidden":
-            short_names = ["w_oh", "w_ph", "w_hp", "bias_h"]
-            axes = [1, 1, 0, 0]
-
-        if layer == "phonology":
-            short_names = [
-                "w_hp",
-                "w_pp",  # w_pp need both axis 0 and 1
-                "w_cp",
-                "w_pc",
-                "w_ph",
-                "bias_p",
-            ]
-            axes = [1, (0, 1), 1, 0, 0, 0]
-
-        if layer == "cleanup":
-            short_names = ["w_cp", "w_pc", "bias_c"]
-            axes = [0, 1, 0]
-
-        names = [self.abbreviations[short_name] for short_name in short_names]
-        return names, axes
+        # convert the name abbrevations to the full names
+        names = [self.abbreviations[name] for name in connections.keys()]
+        return names, list(connections.values())
 
     def get_units(self, layer: str) -> int:
-        """Get the units of the target layer.
+        """Get the number of units in the target layer.
 
         Args:
             layer: the target layer, choose from ['hidden', 'phonology', 'cleanup']
@@ -124,9 +128,7 @@ class PMSP(tf.keras.Model):
         surgeon = Surgeon(surgery_plan=plan)
 
         new_model = make_recipient(model=self, surgery_plan=plan, make_model_fn=PMSP)
-        new_model.build(
-            input_shape=self._saved_model_inputs_spec.shape
-        )  # TODO: check tf version support for _saved_model_input_spec
+        new_model.build(input_shape=self._saved_model_inputs_spec.shape)
 
         surgeon.transplant(donor=self, recipient=new_model)
         return new_model
