@@ -132,3 +132,8 @@ class PMSP(tf.keras.Model):
 
         surgeon.transplant(donor=self, recipient=new_model)
         return new_model
+
+    def cut_connection(self, weight: str) -> None:
+        """Cut a connection between two layers."""
+
+        pass

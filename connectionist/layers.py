@@ -305,12 +305,35 @@ class PMSPCell(tf.keras.layers.Layer):
     See Plaut, McClelland, Seidenberg and Patterson (1996), simulation 3.
     """
 
-    def __init__(self, tau: float, h_units: int, p_units: int, c_units: int) -> None:
+    def __init__(
+        self,
+        tau: float,
+        h_units: int,
+        p_units: int,
+        c_units: int,
+        connections: List[str] = None,
+    ) -> None:
+
         super().__init__()
         self.tau = tau
         self.h_units = h_units
         self.p_units = p_units
         self.c_units = c_units
+
+        if connections is None:
+            connections = ["oh", "ph", "hp", "pp", "cp", "pc"]
+
+        self._validate_connections(connections)
+        self.connections = connections
+
+    @staticmethod
+    def _validate_connections(connections) -> None:
+        s = set([letter for connection in connections for letter in connection])
+
+        if not s.issubset(set("ohpc")):
+            raise ValueError(
+                "Connections must contain only letters in ['o', 'h', 'p', 'c']"
+            )
 
     def build(self, input_shape: tf.TensorShape) -> None:
         # Hidden layer
