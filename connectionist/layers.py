@@ -385,6 +385,10 @@ class PMSPCell(tf.keras.layers.Layer):
         """
         return [conn for conn in self.connections if conn.endswith(layer[0])]
 
+    def _has_connection(self, layer: str) -> bool:
+        """Check whether the given layer has any incoming connections."""
+        return len(self.get_connections(layer)) > 0
+
     def call(
         self,
         last_o: tf.Tensor,
@@ -405,14 +409,15 @@ class PMSPCell(tf.keras.layers.Layer):
         layer_activations = {}
         inputs_to = {}
         for layer in self.all_layers_names:
+            inputs_to[layer] = {}  # Layer inputs, e.g.: x @ w_{xy}
+            if self._has_connection(layer):
+                for conn in self.get_connections(layer):
+                    inputs_to[layer][conn] = get_input(conn) @ getattr(self, conn)
 
-            # Layer inputs, e.g.: x @ w_{xy}
-            inputs_to[layer] = {}
-            for conn in self.get_connections(layer):
-                inputs_to[layer][conn] = get_input(conn) @ getattr(self, conn)
-
-            # Layer activation
-            layer_activations[layer] = getattr(self, layer)(inputs_to[layer].values())
+                # Layer activation
+                layer_activations[layer] = getattr(self, layer)(
+                    inputs_to[layer].values()
+                )
 
         if return_internals:
             return {
