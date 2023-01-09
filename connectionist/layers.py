@@ -22,6 +22,16 @@ def _time_averaging(
     return x * tau + (1 - tau) * states
 
 
+def reshape_proper(a: tf.TensorArray, perm: List[int] = None) -> tf.TensorArray:
+    """Reshape the TensorArray to the standard output shape of [batch_size, sequence_length, feature].
+
+    Args:
+        a (tf.TensorArray): TensorArray to be reshaped.
+        perm: Permutation of the dimensions of the input TensorArray. Defaults to [1, 0, 2] for typical RNN use case.
+    """
+    return tf.transpose(a.stack(), perm)
+
+
 class TimeAveragedDense(tf.keras.layers.Dense):
     """Dense layer with Time-averaging mechanism.
 
@@ -429,11 +439,11 @@ class PMSPCell(tf.keras.layers.Layer):
 
         return layer_activations
 
-    def reset_states(self):  # TODO: need another name?
+    def reset_states(self):
         """Reset time averaging history."""
-        self.time_averaging_p.reset_states()
-        self.time_averaging_h.reset_states()
-        self.p2c.reset_states()
+
+        for layer in self.all_layers_names:
+            getattr(self, layer).reset_states()
 
 
 class PMSPLayer(tf.keras.layers.Layer):
@@ -442,12 +452,20 @@ class PMSPLayer(tf.keras.layers.Layer):
     See Plaut, McClelland, Seidenberg and Patterson (1996), simulation 3.
     """
 
-    def __init__(self, tau: float, h_units: int, p_units: int, c_units: int) -> None:
+    def __init__(
+        self,
+        tau: float,
+        h_units: int,
+        p_units: int,
+        c_units: int,
+        connections: List[str] = None,
+    ) -> None:
         super().__init__()
         self.tau = tau
         self.h_units = h_units
         self.p_units = p_units
         self.c_units = c_units
+        self.connections = connections  # Sanitation is done when building the cell to avoid duplication
 
     def build(self, input_shape: tf.TensorShape) -> None:
         self.cell = PMSPCell(
@@ -455,8 +473,12 @@ class PMSPLayer(tf.keras.layers.Layer):
             h_units=self.h_units,
             p_units=self.p_units,
             c_units=self.c_units,
+            connections=self.connections,
         )
 
+        # Lifting `connections` and `all_layers_name` from cell to layer for easier access
+        self.connections = self.cell.connections
+        self.all_layers_names = self.cell.all_layers_names
         self.built = True
 
     def call(
@@ -465,22 +487,26 @@ class PMSPLayer(tf.keras.layers.Layer):
 
         batch_size, max_ticks, _ = inputs.shape
 
-        names = (
-            ["h", "p", "c", "oh", "ph", "hp", "pp", "cp"] if return_internals else ["p"]
+        output_names = (
+            [*self.all_layers_names, *self.connections]
+            if return_internals
+            else ["phonology"]
         )
 
         # Containers for outputs with shape (batch_size, max_ticks, units)
         tf_arrays = {
-            name: tf.TensorArray(dtype=tf.float32, size=max_ticks) for name in names
+            name: tf.TensorArray(dtype=tf.float32, size=max_ticks)
+            for name in output_names
         }
 
+        # Initialize layer activations
         h = tf.zeros((batch_size, self.h_units))
         p = tf.zeros((batch_size, self.p_units))
         c = tf.zeros((batch_size, self.c_units))
 
         # Run RNN (Unrolling RNN Cell)
         for t in range(max_ticks):
-            o = inputs[:, t]
+            o = tf.cast(inputs[:, t], tf.float32)
 
             cell_outputs = self.cell(
                 last_o=o,
@@ -489,20 +515,16 @@ class PMSPLayer(tf.keras.layers.Layer):
                 last_c=c,
                 return_internals=return_internals,
             )
-            h, p, c = cell_outputs["h"], cell_outputs["p"], cell_outputs["c"]
+            h, p, c = (
+                cell_outputs["hidden"],
+                cell_outputs["phonology"],
+                cell_outputs["cleanup"],
+            )
 
             # Store output arrays
-            for name in names:
+            for name in output_names:
                 tf_arrays[name] = tf_arrays[name].write(t, cell_outputs[name])
 
         self.cell.reset_states()
 
-        # Stack and transpose output arrays
-        for name in names:
-            tf_arrays[name] = tf_arrays[name].stack()
-            tf_arrays[name] = tf.transpose(tf_arrays[name], [1, 0, 2])
-
-        if return_internals:
-            return tf_arrays
-        else:
-            return tf_arrays["p"]
+        return {name: reshape_proper(tf_arrays[name]) for name in output_names}
