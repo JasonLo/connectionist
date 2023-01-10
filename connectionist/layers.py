@@ -7,7 +7,13 @@ import tensorflow as tf
 def _time_averaging(
     x: tf.Tensor, tau: float, states: Optional[tf.Tensor] = None
 ) -> tf.Tensor:
-    """Time-averaging mechanism."""
+    """Time-averaging mechanism.
+
+    Args:
+        x (tf.Tensor): Input tensor.
+        tau (float): Time-averaging parameter (How much information should take from the new input). range: [0, 1].
+        states (tf.Tensor, optional): Last states (last activation: a_{t-1} or last integrated input: x_{t-1} = \sum ). Defaults to None.
+    """
 
     if states is None:
         return x * tau
@@ -28,8 +34,8 @@ class TimeAveragedDense(tf.keras.layers.Dense):
 
             When average_at is 'before_activation', the time-averaging is applied BEFORE activation. i.e., time-averaging INPUT.:
                 outputs = activation(integrated_input);
-                integrated input = tau * (inputs @ weights + bias) + (1-tau) * last_inputs;
-                last_inputs is obtained from the last call of this layer, its values stored at `self.states`
+                integrated input = tau * (inputs @ weights + bias) + (1-tau) * last_integrated_input;
+                last_integrated_input is obtained from the last call of this layer, its values stored at `self.states`
 
             When average_at is 'after_activation', the time-averaging is applied AFTER activation. i.e., time-averaging OUTPUT.:
                 outputs = tau * activation(inputs @ weights + bias) + (1-tau) * last_outputs;
@@ -70,14 +76,14 @@ class TimeAveragedDense(tf.keras.layers.Dense):
         outputs = super().call(inputs)
         if self.average_at == "before_activation":
             outputs = _time_averaging(outputs, self.tau, self.states)
-            self.states = outputs
+            self.states = outputs  # state is integrated input here
 
         if self._activation is not None:
             outputs = self._activation(outputs)
 
         if self.average_at == "after_activation":
             outputs = _time_averaging(outputs, self.tau, self.states)
-            self.states = outputs
+            self.states = outputs  # state is activation here
 
         return outputs
 
@@ -103,6 +109,7 @@ class MultiInputTimeAveraging(tf.keras.layers.Layer):
     See Plaut, McClelland, Seidenberg, and Patterson (1996) equation (15) for more details.
 
     This layer is designed for multiple inputs, assuming they had ALREADY been multiplied by weights i.e., a list of (x @ w).
+    i.e., there is only bias term in this layer (no weights) if use_bias is True.
 
     Args:
         tau (float): Time-averaging parameter (How much information should take from the new input). range: [0, 1].
@@ -111,8 +118,8 @@ class MultiInputTimeAveraging(tf.keras.layers.Layer):
 
             When average_at is 'before_activation', the time-averaging is applied BEFORE activation. i.e., time-averaging INPUT.:
                 outputs = activation(integrated_input);
-                integrated input = tau * (sum(inputs) + bias) + (1-tau) * last_inputs;
-                last_inputs is obtained from the last call of this layer, its values stored at `self.states`
+                integrated input = tau * (sum(inputs) + bias) + (1-tau) * last_integrated_input;
+                last_integrated_input is obtained from the last call of this layer, its values stored at `self.states`
 
             When average_at is 'after_activation', the time-averaging is applied AFTER activation. i.e., time-averaging OUTPUT.:
                 outputs = tau * activation(sum(inputs) + bias) + (1-tau) * last_outputs;
@@ -196,14 +203,14 @@ class MultiInputTimeAveraging(tf.keras.layers.Layer):
 
         if self.average_at == "before_activation":
             outputs = _time_averaging(outputs, self.tau, self.states)
-            self.states = outputs
+            self.states = outputs  # state is integrated input here
 
         if self.activation is not None:
             outputs = self.activation(outputs)
 
         if self.average_at == "after_activation":
             outputs = _time_averaging(outputs, self.tau, self.states)
-            self.states = outputs
+            self.states = outputs  # state is activation here
 
         return outputs
 
