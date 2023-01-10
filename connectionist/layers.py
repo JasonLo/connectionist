@@ -186,7 +186,10 @@ class MultiInputTimeAveraging(tf.keras.layers.Layer):
         if not all([x.shape == inputs[0].shape for x in inputs]):
             raise ValueError("All inputs must have the same shape.")
 
-        outputs = self.sum(inputs)
+        if len(inputs) == 1:
+            outputs = inputs[0]
+        else:
+            outputs = self.sum(inputs)
 
         if self.use_bias:
             outputs = tf.nn.bias_add(outputs, self.bias)
