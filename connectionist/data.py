@@ -6,8 +6,7 @@ class ToyOP:
     """Toy O-to-P dataset containing only 20 examples.
 
     - x_train: word representations, fixed across time.
-    - y_train: letter representations, changing across time.
-
+    - y_train: letter sequence representations, changing across time.
     """
 
     letters = "crsaoutbn"
@@ -59,10 +58,10 @@ class ToyOP:
         x_train = np.stack([word_repr for _ in range(self.max_ticks)], axis=1)
         y_train = np.repeat(spelling_repr, self.max_ticks / 3, axis=1)
 
-        print(f"Shape of inputs: {x_train.shape=}")
-        print(f"Shape of outputs: {y_train.shape=}")
-
         return (
             tf.convert_to_tensor(x_train, dtype=tf.int8),
             tf.convert_to_tensor(y_train, dtype=tf.int8),
         )
+
+    def __repr__(self) -> str:
+        return f"Time invarying orthographic word reprsentation: {self.x_train.shape=}.\nTime varying letter/phoneme sequence representation{self.y_train.shape=}"
