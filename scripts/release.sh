@@ -24,6 +24,7 @@ git commit -m "bump version to $RELEASE_VERSION"
 # Tag in Git
 git tag $RELEASE_VERSION -m "release $RELEASE_VERSION"
 git push --tags
+git push
 
 # Remember to add the following to ~/.pypirc
 # [pypi]
