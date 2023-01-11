@@ -84,7 +84,7 @@ class Surgeon:
 
     # Create receipient model and transplant weights
     new_model = make_recipient(model=donor_model, surgery_plan=plan, make_model_fn=PMSP)
-    new_model.build(input_shape=donor_model.pmsp._build_input_shape.shape)
+    new_model.build(input_shape=donor_model.pmsp._build_input_shape)
     surgeon.transplant(donor=donor_model, recipient=new_model)
     ```
 
