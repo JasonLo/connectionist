@@ -5,28 +5,62 @@ from connectionist.damage.shrink_layer import SurgeryPlan, Surgeon, make_recipie
 
 
 class PMSP(tf.keras.Model):
-    """PMSP sim 3 model.
+    """PMSP sim 3 model. A recurrent neural network with hidden layer, phonology layer and cleanup layer. It takes orthography as input and outputs phonology.
 
     See Plaut, McClelland, Seidenberg and Patterson (1996), simulation 3 for details.
 
-    When calling the model with `return_internals`=`True`, the model will return a dictionary with all the internal dynamics. Including:
+    Args:
+        tau: the time constant (smaller time constant = slower temporal dynamics, tau in [0, 1])
+        h_units: the number of hidden units
+        p_units: the number of phonology units
+        c_units: the number of cleanup units
+        connections: the connections between layers, default to: ['oh', 'ph', 'hp', 'pp', 'cp', 'pc']
 
-    - `h`: the hidden layer
-    - `p`: the phonology output layer
-    - `c`: the cleanup layer
-    - `oh`: input from o to h, i.e., $o @ w_oh$
-    - `ph`: input from p to h, i.e., $p @ w_ph$
-    - `hp`: input from h to p, i.e., $h @ w_hp$
-    - `pp`: input from p to p, i.e., $p @ w_pp$
-    - `cp`: input from c to p, i.e., $c @ w_cp$
+    Call args:
 
-    Otherwise, the model will return the phonology output layer, i.e., $p$. This is the default behavior.
+        inputs: the input tensor, shape: (batch_size, time_steps, o_units)
+        return_internals: whether to return the internal dynamics, default to: False.
+
+            If `return_internals`=`True`, the model will return a dictionary with all the internal dynamics. Including:
+                - activations in all layers (e.g., 'hidden')
+                - raw inputs in each connection (e.g., 'oh' = $o @ w_oh$)
+
+            If `return_internals`=`False` the model will return the phonology activation, i.e., $p$.
+
+    Example:
+
+    ```python
+    import tensorflow as tf
+    from connectionist.data import ToyOP
+    from connectionist.models import PMSP
+
+    data = ToyOP()
+    model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(),
+        loss=tf.keras.losses.BinaryCrossentropy(),
+    )
+    model.fit(data.x_train, data.y_train, epochs=3, batch_size=20)
+    ```
+
     """
 
-    def __init__(self, tau: float, h_units: int, p_units: int, c_units: int) -> None:
+    def __init__(
+        self,
+        tau: float,
+        h_units: int,
+        p_units: int,
+        c_units: int,
+        connections: List[str] = None,
+    ) -> None:
         super().__init__()
+
         self.pmsp = PMSPLayer(
-            tau=tau, h_units=h_units, p_units=p_units, c_units=c_units
+            tau=tau,
+            h_units=h_units,
+            p_units=p_units,
+            c_units=c_units,
+            connections=connections,
         )
 
     def call(
@@ -40,65 +74,52 @@ class PMSP(tf.keras.Model):
             h_units=self.pmsp.h_units,
             p_units=self.pmsp.p_units,
             c_units=self.pmsp.c_units,
+            connections=self.pmsp.connections,
         )
 
     @property
-    def abbreviations(self) -> Dict[str, str]:
-        """Weights name abbrevations."""
+    def weights_abbreviations(self) -> Dict[str, str]:
+        """Weights name abbrevations. (e.g., w_oh, bias_hidden)."""
 
-        return {
-            "w_oh": "pmsp_cell/o2h/kernel",
-            "w_ph": "pmsp_cell/p2h/kernel",
-            "w_hp": "pmsp_cell/h2p/kernel",
-            "w_pp": "pmsp_cell/p2p/kernel",
-            "w_cp": "pmsp_cell/c2p/kernel",
-            "w_pc": "pmsp_cell/p2c/kernel",
-            "bias_h": "pmsp_cell/ta_h/bias",
-            "bias_p": "pmsp_cell/ta_p/bias",
-            "bias_c": "pmsp_cell/p2c/bias",
+        weights = {f"w_{w}": f"{w}:0" for w in self.pmsp.connections}
+
+        biases = {
+            f"bias_{layer}": f"{layer}/bias:0" for layer in self.pmsp.all_layers_names
         }
+        return {**weights, **biases}
+
+    def _find_conn_locs(self, layer: str) -> Dict[str, int]:
+        """Find the connection locations of the target layer."""
+
+        def find(l: List[str], prefix: str):
+            """Locate connection by layer prefix."""
+            return [i for i, x in enumerate(l) if x == prefix]
+
+        prefix = layer[0]
+        conn_weights = {}
+        for connection in self.pmsp.connections:
+            if prefix in connection:
+                conn_weights[f"w_{connection}"] = find(connection, prefix)
+
+        conn_bias = {f"bias_{layer}": [0]}
+        return {**conn_weights, **conn_bias}
 
     @property
-    def connections(self) -> Dict[str, Dict[str, Union[int, List[int]]]]:
+    def connection_locs(self) -> Dict[str, Dict[str, int]]:
         """A map that shows which axis of a weight is connecting to a layer."""
 
         return {
-            "hidden": {"w_oh": 1, "w_ph": 1, "w_hp": 0, "bias_h": 0},
-            "cleanup": {"w_cp": 0, "w_pc": 1, "bias_c": 0},
-            "phonology": {
-                "w_hp": 1,
-                "w_pp": [0, 1],
-                "w_cp": 1,
-                "w_pc": 0,
-                "w_ph": 0,
-                "bias_p": 0,
-            },
+            layer: self._find_conn_locs(layer) for layer in self.pmsp.all_layers_names
         }
 
     def _validate_layer(self, layer: str) -> None:
         """Validate the target layer."""
 
-        layers = list(self.connections.keys())
+        layers = list(self.connection_locs.keys())
         if layer not in self.layers:
             raise ValueError(
                 f"Unknown target layer: {layer}, please choose from {layers}"
             )
-
-    def locate_connections(
-        self, layer: str
-    ) -> Tuple[List[str], List[Union[int, List[int]]]]:
-        """Get the lesion locations based on the target layer.
-
-        Returns:
-        - name abbrevations
-        - axis to correspond to the target layer
-        """
-
-        connections = self.connections[layer]
-
-        # convert the name abbrevations to the full names
-        names = [self.abbreviations[name] for name in connections.keys()]
-        return names, list(connections.values())
 
     def get_units(self, layer: str) -> int:
         """Get the number of units in the target layer.
@@ -120,6 +141,21 @@ class PMSP(tf.keras.Model):
         Args:
             layer: the target layer, choose from ['hidden', 'phonology', 'cleanup']
             rate: the shrink rate
+
+        Example:
+
+        ```python
+        from connectionist.data import ToyOP
+        from connectionist.models import PMSP
+
+        model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+
+        # Build or call or fit a model to instantiate the weights
+        y = model(data.x_train)
+
+        new_model = model.shrink_layer('hidden', rate=0.5)
+        ```
+
         """
 
         plan = SurgeryPlan(
@@ -132,3 +168,8 @@ class PMSP(tf.keras.Model):
 
         surgeon.transplant(donor=self, recipient=new_model)
         return new_model
+
+    def cut_connection(self, connection: str) -> None:
+        """Cut a connection between two layers."""
+
+        pass

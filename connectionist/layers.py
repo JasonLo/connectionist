@@ -1,7 +1,6 @@
 from typing import Dict, List, Optional, Tuple, Union
+from functools import partial
 import tensorflow as tf
-
-# TODO: add support for regularization
 
 
 def _time_averaging(
@@ -19,6 +18,18 @@ def _time_averaging(
         return x * tau
 
     return x * tau + (1 - tau) * states
+
+
+def reshape_proper(a: tf.TensorArray, perm: List[int] = None) -> tf.TensorArray:
+    """Reshape the TensorArray to the standard output shape of [batch_size, sequence_length, feature].
+
+    Args:
+        a (tf.TensorArray): TensorArray to be reshaped.
+        perm: Permutation of the dimensions of the input TensorArray. Defaults to [1, 0, 2] for typical RNN use case.
+    """
+    if perm is None:
+        perm = [1, 0, 2]
+    return tf.transpose(a.stack(), perm)
 
 
 class TimeAveragedDense(tf.keras.layers.Dense):
@@ -305,54 +316,88 @@ class PMSPCell(tf.keras.layers.Layer):
     See Plaut, McClelland, Seidenberg and Patterson (1996), simulation 3.
     """
 
-    def __init__(self, tau: float, h_units: int, p_units: int, c_units: int) -> None:
+    def __init__(
+        self,
+        tau: float,
+        h_units: int,
+        p_units: int,
+        c_units: int,
+        connections: List[str] = None,
+    ) -> None:
+
         super().__init__()
         self.tau = tau
         self.h_units = h_units
         self.p_units = p_units
         self.c_units = c_units
 
+        if connections is None:
+            connections = ["oh", "ph", "hp", "pp", "cp", "pc"]
+
+        self._validate_connections(connections)
+        self.connections = connections
+
+    @property
+    def all_layers_names(self) -> List[str]:
+        return ["hidden", "phonology", "cleanup"]
+
+    @staticmethod
+    def _validate_connections(connections) -> None:
+        s = set([letter for connection in connections for letter in connection])
+
+        if not s.issubset(set("ohpc")):
+            raise ValueError(
+                "Connections must contain only letters in ['o', 'h', 'p', 'c']"
+            )
+
+    def get_connection_shape(
+        self, connection: str, input_shape: tf.TensorShape
+    ) -> List[int]:
+
+        layer2units = {
+            "o": input_shape[-1],
+            "h": self.h_units,
+            "p": self.p_units,
+            "c": self.c_units,
+        }
+
+        return [layer2units[layer] for layer in connection]
+
     def build(self, input_shape: tf.TensorShape) -> None:
-        # Hidden layer
-        self.o2h = tf.keras.layers.Dense(
-            self.h_units, activation=None, use_bias=False, name="o2h"
-        )  # w_oh
-        self.p2h = tf.keras.layers.Dense(
-            self.h_units, activation=None, use_bias=False, name="p2h"
-        )  # w_ph
-        self.time_averaging_h = MultiInputTimeAveraging(
-            tau=self.tau,
-            average_at="after_activation",
-            activation="sigmoid",
-            name="ta_h",
-        )  # bias_h and the time averaging mechanism
 
-        # Phonology layer
-        self.h2p = tf.keras.layers.Dense(
-            self.p_units, activation=None, use_bias=False, name="h2p"
-        )  # w_hp
-        self.p2p = tf.keras.layers.Dense(
-            self.p_units, activation=None, use_bias=False, name="p2p"
-        )  # w_pp
-        self.c2p = tf.keras.layers.Dense(
-            self.p_units, activation=None, use_bias=False, name="c2p"
-        )  # w_cp
-        self.time_averaging_p = MultiInputTimeAveraging(
-            tau=self.tau,
-            average_at="after_activation",
-            activation="sigmoid",
-            name="ta_p",
-        )  # bias_p and the time averaging mechanism
+        for connection in self.connections:
+            setattr(
+                self,
+                connection,
+                self.add_weight(
+                    name=connection,
+                    shape=self.get_connection_shape(connection, input_shape),
+                ),
+            )
 
-        # Cleanup layer
-        self.p2c = TimeAveragedDense(
+        # layer block: Add bias, time-averaging and activation
+        create_layer = partial(
+            MultiInputTimeAveraging,
             tau=self.tau,
             average_at="after_activation",
-            units=self.c_units,
             activation="sigmoid",
-            name="p2c",
-        )  # w_pc, bias_c, and the time averaging mechanism
+        )
+
+        for layer in self.all_layers_names:
+            setattr(self, layer, create_layer(name=layer))
+
         self.built = True
+
+    def get_connections(self, layer: str) -> List[str]:
+        """Get connections that end with the given layer.
+
+        e.g., if layer = "hidden", return all connections that ends with "h", e.g.: ["oh", "ph"]
+        """
+        return [conn for conn in self.connections if conn.endswith(layer[0])]
+
+    def _has_connection(self, layer: str) -> bool:
+        """Check whether the given layer has any incoming connections."""
+        return len(self.get_connections(layer)) > 0
 
     def call(
         self,
@@ -362,42 +407,43 @@ class PMSPCell(tf.keras.layers.Layer):
         last_c: tf.Tensor,
         return_internals: bool = False,
     ) -> Dict[str, tf.Tensor]:
-        # Hidden layer activation
-        # h_t = tau(act(o_{t-1} @ w_oh + p_{t-1} @ w_ph + bias_h)) + (1 - tau) * h_{t-1}
-        oh = self.o2h(last_o)
-        ph = self.p2h(last_p)
-        h = self.time_averaging_h([oh, ph])
+        def get_input(connection) -> tf.Tensor:
+            input_map = {
+                "o": last_o,
+                "h": last_h,
+                "p": last_p,
+                "c": last_c,
+            }
+            return input_map[connection[0]]
 
-        # Phonology layer activation
-        # p_t = tau(act(h_{t-1} @ w_hp + p_{t-1} @ w_pp + c_{t-1} @ w_cp + bias_p)) + (1 - tau) * p_{t-1}
-        hp = self.h2p(last_h)
-        pp = self.p2p(last_p)
-        cp = self.c2p(last_c)
-        p = self.time_averaging_p([hp, pp, cp])
+        layer_activations = {}
+        inputs_to = {}
+        for layer in self.all_layers_names:
+            inputs_to[layer] = {}  # Layer inputs, e.g.: x @ w_{xy}
+            if self._has_connection(layer):
+                for conn in self.get_connections(layer):
+                    inputs_to[layer][conn] = get_input(conn) @ getattr(self, conn)
 
-        # Cleanup layer activation
-        # c_t = tau(act(p_{t-1} @ w_pc + bias_c)) + (1 - tau) * c_{t-1}
-        c = self.p2c(last_p)
+                # Layer activation
+                layer_activations[layer] = getattr(self, layer)(
+                    inputs_to[layer].values()
+                )
 
         if return_internals:
             return {
-                "h": h,
-                "p": p,
-                "c": c,
-                "oh": oh,
-                "ph": ph,
-                "hp": hp,
-                "pp": pp,
-                "cp": cp,
+                **layer_activations,
+                **inputs_to["hidden"],
+                **inputs_to["phonology"],
+                **inputs_to["cleanup"],
             }
 
-        return {"h": h, "p": p, "c": c}
+        return layer_activations
 
-    def reset_states(self):  # TODO: need another name?
+    def reset_states(self):
         """Reset time averaging history."""
-        self.time_averaging_p.reset_states()
-        self.time_averaging_h.reset_states()
-        self.p2c.reset_states()
+
+        for layer in self.all_layers_names:
+            getattr(self, layer).reset_states()
 
 
 class PMSPLayer(tf.keras.layers.Layer):
@@ -406,12 +452,20 @@ class PMSPLayer(tf.keras.layers.Layer):
     See Plaut, McClelland, Seidenberg and Patterson (1996), simulation 3.
     """
 
-    def __init__(self, tau: float, h_units: int, p_units: int, c_units: int) -> None:
+    def __init__(
+        self,
+        tau: float,
+        h_units: int,
+        p_units: int,
+        c_units: int,
+        connections: List[str] = None,
+    ) -> None:
         super().__init__()
         self.tau = tau
         self.h_units = h_units
         self.p_units = p_units
         self.c_units = c_units
+        self.connections = connections  # Sanitation is done when building the cell to avoid duplication
 
     def build(self, input_shape: tf.TensorShape) -> None:
         self.cell = PMSPCell(
@@ -419,8 +473,12 @@ class PMSPLayer(tf.keras.layers.Layer):
             h_units=self.h_units,
             p_units=self.p_units,
             c_units=self.c_units,
+            connections=self.connections,
         )
 
+        # Lifting `connections` and `all_layers_name` from cell to layer for easier access
+        self.connections = self.cell.connections
+        self.all_layers_names = self.cell.all_layers_names
         self.built = True
 
     def call(
@@ -429,22 +487,26 @@ class PMSPLayer(tf.keras.layers.Layer):
 
         batch_size, max_ticks, _ = inputs.shape
 
-        names = (
-            ["h", "p", "c", "oh", "ph", "hp", "pp", "cp"] if return_internals else ["p"]
+        output_names = (
+            [*self.all_layers_names, *self.connections]
+            if return_internals
+            else ["phonology"]
         )
 
         # Containers for outputs with shape (batch_size, max_ticks, units)
         tf_arrays = {
-            name: tf.TensorArray(dtype=tf.float32, size=max_ticks) for name in names
+            name: tf.TensorArray(dtype=tf.float32, size=max_ticks)
+            for name in output_names
         }
 
+        # Initialize layer activations
         h = tf.zeros((batch_size, self.h_units))
         p = tf.zeros((batch_size, self.p_units))
         c = tf.zeros((batch_size, self.c_units))
 
         # Run RNN (Unrolling RNN Cell)
         for t in range(max_ticks):
-            o = inputs[:, t]
+            o = tf.cast(inputs[:, t], tf.float32)
 
             cell_outputs = self.cell(
                 last_o=o,
@@ -453,20 +515,16 @@ class PMSPLayer(tf.keras.layers.Layer):
                 last_c=c,
                 return_internals=return_internals,
             )
-            h, p, c = cell_outputs["h"], cell_outputs["p"], cell_outputs["c"]
+            h, p, c = (
+                cell_outputs["hidden"],
+                cell_outputs["phonology"],
+                cell_outputs["cleanup"],
+            )
 
             # Store output arrays
-            for name in names:
+            for name in output_names:
                 tf_arrays[name] = tf_arrays[name].write(t, cell_outputs[name])
 
         self.cell.reset_states()
 
-        # Stack and transpose output arrays
-        for name in names:
-            tf_arrays[name] = tf_arrays[name].stack()
-            tf_arrays[name] = tf.transpose(tf_arrays[name], [1, 0, 2])
-
-        if return_internals:
-            return tf_arrays
-        else:
-            return tf_arrays["p"]
+        return {name: reshape_proper(tf_arrays[name]) for name in output_names}
