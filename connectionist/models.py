@@ -173,8 +173,9 @@ class PMSP(tf.keras.Model):
         )
         surgeon = Surgeon(surgery_plan=plan)
 
+        # Make a new model with the same architecture, but with new weights shapes
         new_model = make_recipient(model=self, surgery_plan=plan, make_model_fn=PMSP)
-        new_model.build(input_shape=self._saved_model_inputs_spec.shape)
+        new_model.build(input_shape=self.pmsp._build_input_shape.shape)
 
         surgeon.transplant(donor=self, recipient=new_model)
         return new_model
@@ -192,7 +193,7 @@ class PMSP(tf.keras.Model):
         remaining_connections = [c for c in self.connections if c not in connections]
         model_config.update(connections=remaining_connections)
         new_model = PMSP(**model_config)
-        new_model.build(input_shape=self._saved_model_inputs_spec.shape)
+        new_model.build(input_shape=self.pmsp._build_input_shape.shape)
 
         # Copy weights
         for weight_name in new_model.weights_abbreviations.keys():
