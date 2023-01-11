@@ -2,8 +2,6 @@ from typing import Dict, List, Optional, Tuple, Union
 from functools import partial
 import tensorflow as tf
 
-# TODO: add support for regularization
-
 
 def _time_averaging(
     x: tf.Tensor, tau: float, states: Optional[tf.Tensor] = None
@@ -29,6 +27,8 @@ def reshape_proper(a: tf.TensorArray, perm: List[int] = None) -> tf.TensorArray:
         a (tf.TensorArray): TensorArray to be reshaped.
         perm: Permutation of the dimensions of the input TensorArray. Defaults to [1, 0, 2] for typical RNN use case.
     """
+    if perm is None:
+        perm = [1, 0, 2]
     return tf.transpose(a.stack(), perm)
 
 
