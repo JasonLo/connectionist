@@ -1,7 +1,8 @@
-from typing import Dict, Union, Tuple, List
+from typing import Dict, Union, List
 import tensorflow as tf
 from connectionist.layers import PMSPLayer
 from connectionist.damage.shrink_layer import SurgeryPlan, Surgeon, make_recipient
+from connectionist.damage.utils import copy_transplant
 
 
 class PMSP(tf.keras.Model):
@@ -55,6 +56,15 @@ class PMSP(tf.keras.Model):
     ) -> None:
         super().__init__()
 
+        self.tau = tau
+        self.h_units = h_units
+        self.p_units = p_units
+        self.c_units = c_units
+        self.connections = connections
+
+        if connections is None:
+            self.connections = ["oh", "ph", "hp", "pp", "cp", "pc"]
+
         self.pmsp = PMSPLayer(
             tau=tau,
             h_units=h_units,
@@ -70,18 +80,18 @@ class PMSP(tf.keras.Model):
 
     def get_config(self) -> Dict[str, Union[float, int]]:
         return dict(
-            tau=self.pmsp.tau,
-            h_units=self.pmsp.h_units,
-            p_units=self.pmsp.p_units,
-            c_units=self.pmsp.c_units,
-            connections=self.pmsp.connections,
+            tau=self.tau,
+            h_units=self.h_units,
+            p_units=self.p_units,
+            c_units=self.c_units,
+            connections=self.connections,
         )
 
     @property
     def weights_abbreviations(self) -> Dict[str, str]:
         """Weights name abbrevations. (e.g., w_oh, bias_hidden)."""
 
-        weights = {f"w_{w}": f"{w}:0" for w in self.pmsp.connections}
+        weights = {f"w_{w}": f"{w}:0" for w in self.connections}
 
         biases = {
             f"bias_{layer}": f"{layer}/bias:0" for layer in self.pmsp.all_layers_names
@@ -97,7 +107,7 @@ class PMSP(tf.keras.Model):
 
         prefix = layer[0]
         conn_weights = {}
-        for connection in self.pmsp.connections:
+        for connection in self.connections:
             if prefix in connection:
                 conn_weights[f"w_{connection}"] = find(connection, prefix)
 
@@ -129,9 +139,9 @@ class PMSP(tf.keras.Model):
         """
 
         mapping = {
-            "hidden": self.pmsp.h_units,
-            "phonology": self.pmsp.p_units,
-            "cleanup": self.pmsp.c_units,
+            "hidden": self.h_units,
+            "phonology": self.p_units,
+            "cleanup": self.c_units,
         }
         return mapping[layer]
 
@@ -169,7 +179,23 @@ class PMSP(tf.keras.Model):
         surgeon.transplant(donor=self, recipient=new_model)
         return new_model
 
-    def cut_connection(self, connection: str) -> None:
-        """Cut a connection between two layers."""
+    def cut_connections(self, connections: List[str]) -> None:
+        """Cut connections between two layers."""
 
-        pass
+        if not all([c in self.connections for c in connections]):
+            raise ValueError(
+                f"Unknown connections: {connections}, please choose from {self.connections}"
+            )
+
+        # Create recipient model with less conections
+        model_config = self.get_config()
+        remaining_connections = [c for c in self.connections if c not in connections]
+        model_config.update(connections=remaining_connections)
+        new_model = PMSP(**model_config)
+        new_model.build(input_shape=self._saved_model_inputs_spec.shape)
+
+        # Copy weights
+        for weight_name in new_model.weights_abbreviations.keys():
+            copy_transplant(donor=self, recipient=new_model, weight_name=weight_name)
+
+        return new_model
