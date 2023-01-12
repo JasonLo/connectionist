@@ -73,13 +73,13 @@ class PMSP(tf.keras.Model):
 
         self.pmsp = PMSPLayer(
             tau=tau,
-            h_units=h_units,
-            p_units=p_units,
-            c_units=c_units,
-            h_noise=h_noise,
-            p_noise=p_noise,
-            c_noise=c_noise,
-            connections=connections,
+            h_units=self.h_units,
+            p_units=self.p_units,
+            c_units=self.c_units,
+            h_noise=self.h_noise,
+            p_noise=self.p_noise,
+            c_noise=self.c_noise,
+            connections=self.connections,
         )
 
     @property

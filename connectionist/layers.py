@@ -524,6 +524,7 @@ class PMSPLayer(tf.keras.layers.Layer):
         )
 
         # Lifting `all_layers_name` from cell to layer for easier access
+        self.connections = self.cell.connections  # Lift instantiated connections
         self.all_layers_names = self.cell.all_layers_names
 
         self.built = True
