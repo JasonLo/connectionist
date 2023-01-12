@@ -532,7 +532,10 @@ class PMSPLayer(tf.keras.layers.Layer):
         self.built = True
 
     def call(
-        self, inputs: tf.Tensor, return_internals: bool = False, training: bool = False
+        self,
+        inputs: tf.Tensor,
+        training: bool = False,
+        return_internals: bool = False,
     ) -> Union[tf.Tensor, Dict[str, tf.Tensor]]:
 
         batch_size, max_ticks, _ = inputs.shape
