@@ -434,10 +434,6 @@ class PMSPCell(tf.keras.layers.Layer):
         training: bool = False,
         return_internals: bool = False,
     ) -> Dict[str, tf.Tensor]:
-
-        batch_size = last_o.shape[0]
-        tf.print(f"{batch_size=}")
-
         def get_input(connection) -> tf.Tensor:
             input_map = {
                 "o": last_o,
@@ -447,6 +443,7 @@ class PMSPCell(tf.keras.layers.Layer):
             }
             return input_map[connection[0]]
 
+        batch_size = last_o.shape[0]
         layer_activations = {}
         inputs_to = {}
         for layer_name in self.all_layers_names:
