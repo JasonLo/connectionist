@@ -305,9 +305,7 @@ class TimeAveragedRNN(tf.keras.layers.Layer):
 
         # rnn_cell states persist across ticks, but not across batches/calls, so we need to reset rnn_cell here
         self.rnn_cell.reset_states()
-        outputs = outputs.stack()  # (seq_len, batch_size, units)
-        outputs = tf.transpose(outputs, [1, 0, 2])  # (batch_size, seq_len, units)
-        return outputs
+        return reshape_proper(outputs)
 
 
 class PMSPCell(tf.keras.layers.Layer):
@@ -322,6 +320,9 @@ class PMSPCell(tf.keras.layers.Layer):
         h_units: int,
         p_units: int,
         c_units: int,
+        h_noise: float = 0.0,
+        p_noise: float = 0.0,
+        c_noise: float = 0.0,
         connections: List[str] = None,
     ) -> None:
 
@@ -331,15 +332,25 @@ class PMSPCell(tf.keras.layers.Layer):
         self.p_units = p_units
         self.c_units = c_units
 
-        if connections is None:
+        [self._validate_noise(x) for x in [h_noise, p_noise, c_noise]]
+        self.h_noise = h_noise
+        self.p_noise = p_noise
+        self.c_noise = c_noise
+
+        if connections is not None:
+            self._validate_connections(connections)
+        else:
             connections = ["oh", "ph", "hp", "pp", "cp", "pc"]
 
-        self._validate_connections(connections)
         self.connections = connections
 
     @property
     def all_layers_names(self) -> List[str]:
-        return ["hidden", "phonology", "cleanup"]
+        return [
+            "hidden",
+            "phonology",
+            "cleanup",
+        ]  # Prefixs ('h', 'p', 'c') must be unique
 
     @staticmethod
     def _validate_connections(connections) -> None:
@@ -349,6 +360,11 @@ class PMSPCell(tf.keras.layers.Layer):
             raise ValueError(
                 "Connections must contain only letters in ['o', 'h', 'p', 'c']"
             )
+
+    @staticmethod
+    def _validate_noise(noise: float) -> None:
+        if noise < 0.0:
+            raise ValueError("Noise must be > 0")
 
     def get_connection_shape(
         self, connection: str, input_shape: tf.TensorShape
@@ -386,6 +402,16 @@ class PMSPCell(tf.keras.layers.Layer):
         for layer in self.all_layers_names:
             setattr(self, layer, create_layer(name=layer))
 
+        # Noise layers (in dict for easier access)
+        def _get_noise(layer_name: str) -> float:
+            return getattr(self, f"{layer_name[0]}_noise")
+
+        self.noise = {}
+        for layer_name in self.all_layers_names:
+            self.noise[layer_name] = tf.keras.layers.GaussianNoise(
+                _get_noise(layer_name)
+            )
+
         self.built = True
 
     def get_connections(self, layer: str) -> List[str]:
@@ -405,6 +431,7 @@ class PMSPCell(tf.keras.layers.Layer):
         last_h: tf.Tensor,
         last_p: tf.Tensor,
         last_c: tf.Tensor,
+        training: bool = False,
         return_internals: bool = False,
     ) -> Dict[str, tf.Tensor]:
         def get_input(connection) -> tf.Tensor:
@@ -416,18 +443,31 @@ class PMSPCell(tf.keras.layers.Layer):
             }
             return input_map[connection[0]]
 
+        batch_size = last_o.shape[0]
         layer_activations = {}
         inputs_to = {}
-        for layer in self.all_layers_names:
-            inputs_to[layer] = {}  # Layer inputs, e.g.: x @ w_{xy}
-            if self._has_connection(layer):
-                for conn in self.get_connections(layer):
-                    inputs_to[layer][conn] = get_input(conn) @ getattr(self, conn)
+        for layer_name in self.all_layers_names:
+            inputs_to[layer_name] = {}  # Layer inputs, e.g.: noise, x @ w_{xy}
 
-                # Layer activation
-                layer_activations[layer] = getattr(self, layer)(
-                    inputs_to[layer].values()
-                )
+            # Add noise (I did not separate 0 noise from non-zero noise for simplicity, and it is computationally cheap anyway)
+            # Do NOT rely on shape broadcasting, since each value must have a random noise value
+            _zeros = tf.zeros((batch_size, getattr(self, f"{layer_name[0]}_units")))
+
+            # TODO: confirm whether noise should behave differently in training and inference
+            # I use `f"{layer_name}_noise"` instead of `noise` because `input_to` will be flattened at the end
+            inputs_to[layer_name][f"{layer_name}_noise"] = self.noise[layer_name](
+                _zeros, training=training
+            )
+
+            # Append x @ w for each incoming connection
+            if self._has_connection(layer_name):
+                for conn in self.get_connections(layer_name):
+                    inputs_to[layer_name][conn] = get_input(conn) @ getattr(self, conn)
+
+            # Layer activation (bias is inside the MultiInputTimeAveraging layer, so we don't need to add it here)
+            layer_activations[layer_name] = getattr(self, layer_name)(
+                inputs_to[layer_name].values()
+            )
 
         if return_internals:
             return {
@@ -458,14 +498,18 @@ class PMSPLayer(tf.keras.layers.Layer):
         h_units: int,
         p_units: int,
         c_units: int,
+        h_noise: float = 0.0,
+        p_noise: float = 0.0,
+        c_noise: float = 0.0,
         connections: List[str] = None,
     ) -> None:
         super().__init__()
+
+        # Sanitation is done when building the cell to avoid duplication
         self.tau = tau
-        self.h_units = h_units
-        self.p_units = p_units
-        self.c_units = c_units
-        self.connections = connections  # Sanitation is done when building the cell to avoid duplication
+        self.h_units, self.p_units, self.c_units = h_units, p_units, c_units
+        self.h_noise, self.p_noise, self.c_noise = h_noise, p_noise, c_noise
+        self.connections = connections
 
     def build(self, input_shape: tf.TensorShape) -> None:
         self.cell = PMSPCell(
@@ -473,16 +517,22 @@ class PMSPLayer(tf.keras.layers.Layer):
             h_units=self.h_units,
             p_units=self.p_units,
             c_units=self.c_units,
+            h_noise=self.h_noise,
+            p_noise=self.p_noise,
+            c_noise=self.c_noise,
             connections=self.connections,
         )
 
-        # Lifting `connections` and `all_layers_name` from cell to layer for easier access
-        self.connections = self.cell.connections
+        # Lifting `all_layers_name` from cell to layer for easier access
         self.all_layers_names = self.cell.all_layers_names
+
         self.built = True
 
     def call(
-        self, inputs: tf.Tensor, return_internals: bool = False
+        self,
+        inputs: tf.Tensor,
+        training: bool = False,
+        return_internals: bool = False,
     ) -> Union[tf.Tensor, Dict[str, tf.Tensor]]:
 
         batch_size, max_ticks, _ = inputs.shape
@@ -513,6 +563,7 @@ class PMSPLayer(tf.keras.layers.Layer):
                 last_h=h,
                 last_p=p,
                 last_c=c,
+                training=training,
                 return_internals=return_internals,
             )
             h, p, c = (

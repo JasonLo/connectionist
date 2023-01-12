@@ -52,6 +52,9 @@ class PMSP(tf.keras.Model):
         h_units: int,
         p_units: int,
         c_units: int,
+        h_noise: float = 0.0,
+        p_noise: float = 0.0,
+        c_noise: float = 0.0,
         connections: List[str] = None,
     ) -> None:
         super().__init__()
@@ -60,6 +63,9 @@ class PMSP(tf.keras.Model):
         self.h_units = h_units
         self.p_units = p_units
         self.c_units = c_units
+        self.h_noise = h_noise
+        self.p_noise = p_noise
+        self.c_noise = c_noise
         self.connections = connections
 
         if connections is None:
@@ -70,20 +76,30 @@ class PMSP(tf.keras.Model):
             h_units=h_units,
             p_units=p_units,
             c_units=c_units,
+            h_noise=h_noise,
+            p_noise=p_noise,
+            c_noise=c_noise,
             connections=connections,
         )
 
-    def call(
-        self, inputs: tf.Tensor, return_internals: bool = False
-    ) -> Union[tf.Tensor, Dict[str, tf.Tensor]]:
-        return self.pmsp(inputs, return_internals=return_internals)
+    @property
+    def all_layers_names(self) -> List[str]:
+        return self.pmsp.all_layers_names
 
-    def get_config(self) -> Dict[str, Union[float, int]]:
+    def call(
+        self, inputs: tf.Tensor, training: bool = False, return_internals: bool = False
+    ) -> Union[tf.Tensor, Dict[str, tf.Tensor]]:
+        return self.pmsp(inputs, training=training, return_internals=return_internals)
+
+    def get_config(self) -> Dict[str, Union[float, int, list]]:
         return dict(
             tau=self.tau,
             h_units=self.h_units,
             p_units=self.p_units,
             c_units=self.c_units,
+            h_noise=self.h_noise,
+            p_noise=self.p_noise,
+            c_noise=self.c_noise,
             connections=self.connections,
         )
 
@@ -93,9 +109,7 @@ class PMSP(tf.keras.Model):
 
         weights = {f"w_{w}": f"{w}:0" for w in self.connections}
 
-        biases = {
-            f"bias_{layer}": f"{layer}/bias:0" for layer in self.pmsp.all_layers_names
-        }
+        biases = {f"bias_{layer}": f"{layer}/bias:0" for layer in self.all_layers_names}
         return {**weights, **biases}
 
     def _find_conn_locs(self, layer: str) -> Dict[str, int]:
@@ -118,17 +132,20 @@ class PMSP(tf.keras.Model):
     def connection_locs(self) -> Dict[str, Dict[str, int]]:
         """A map that shows which axis of a weight is connecting to a layer."""
 
-        return {
-            layer: self._find_conn_locs(layer) for layer in self.pmsp.all_layers_names
-        }
+        return {layer: self._find_conn_locs(layer) for layer in self.all_layers_names}
 
     def _validate_layer(self, layer: str) -> None:
         """Validate the target layer."""
 
-        layers = list(self.connection_locs.keys())
-        if layer not in self.layers:
+        if layer not in self.all_layers_names:
             raise ValueError(
-                f"Unknown target layer: {layer}, please choose from {layers}"
+                f"Unknown target layer: {layer}, please choose from {self.all_layers_names}"
+            )
+
+    def _validate_connections(self, connections: List[str]) -> None:
+        if not all([c in self.connections for c in connections]):
+            raise ValueError(
+                f"Unknown connections: {connections}, please choose from {self.connections}"
             )
 
     def get_units(self, layer: str) -> int:
@@ -168,6 +185,8 @@ class PMSP(tf.keras.Model):
 
         """
 
+        self._validate_layer(layer)
+
         plan = SurgeryPlan(
             layer=layer, original_units=self.get_units(layer), shrink_rate=rate
         )
@@ -183,15 +202,54 @@ class PMSP(tf.keras.Model):
     def cut_connections(self, connections: List[str]) -> None:
         """Cut connections between two layers."""
 
-        if not all([c in self.connections for c in connections]):
-            raise ValueError(
-                f"Unknown connections: {connections}, please choose from {self.connections}"
-            )
+        self._validate_connections(connections)
 
         # Create recipient model with less conections
         model_config = self.get_config()
         remaining_connections = [c for c in self.connections if c not in connections]
         model_config.update(connections=remaining_connections)
+        new_model = PMSP(**model_config)
+        new_model.build(input_shape=self.pmsp._build_input_shape)
+
+        # Copy weights
+        for weight_name in new_model.weights_abbreviations.keys():
+            copy_transplant(donor=self, recipient=new_model, weight_name=weight_name)
+
+        return new_model
+
+    def add_noise(self, layer: str, stddev: float) -> None:
+        """Add noise to the target layer.
+
+        Args:
+            layer: the target layer, choose from ['hidden', 'phonology', 'cleanup']
+            stddev: the standard deviation of the noise
+
+        Example:
+
+        ```python
+        from connectionist.data import ToyOP
+        from connectionist.models import PMSP
+
+        model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+
+        # Build or call or fit a model to instantiate the weights
+        y = model(data.x_train)
+
+        new_model = model.add_noise('hidden', stddev=0.1)
+        ```
+
+        """
+
+        self._validate_layer(layer)
+
+        # Create recipient model with noise at the target layer
+        model_config = self.get_config()
+
+        def _to_noise_name(layer_name: str) -> str:
+            return f"{layer_name[0]}_noise"
+
+        noise_name = _to_noise_name(layer)
+        model_config[noise_name] = model_config[noise_name] + stddev
         new_model = PMSP(**model_config)
         new_model.build(input_shape=self.pmsp._build_input_shape)
 
