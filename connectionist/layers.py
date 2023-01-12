@@ -350,7 +350,7 @@ class PMSPCell(tf.keras.layers.Layer):
             "hidden",
             "phonology",
             "cleanup",
-        ]  # Prefixs ('h', 'p', 'c') must be unique
+        ]  # Prefixes ('h', 'p', 'c') must be unique
 
     @staticmethod
     def _validate_connections(connections) -> None:

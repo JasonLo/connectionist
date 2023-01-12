@@ -64,4 +64,4 @@ class ToyOP:
         )
 
     def __repr__(self) -> str:
-        return f"Time invarying orthographic word reprsentation: {self.x_train.shape=}.\nTime varying letter/phoneme sequence representation{self.y_train.shape=}"
+        return f"Time invariant orthographic word representation: {self.x_train.shape=}.\nTime varying letter/phoneme sequence representation{self.y_train.shape=}"

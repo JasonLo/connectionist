@@ -173,7 +173,7 @@ class PMSP(tf.keras.Model):
             rate: the shrink rate
 
         Returns:
-            A new model with the same architecture, but with new weights shapes that match with the shrinked layer.
+            A new model with the same architecture, but with new weights shapes that match with the shrank layer.
 
         Example:
 
