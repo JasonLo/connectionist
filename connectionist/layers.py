@@ -609,15 +609,22 @@ class Spoke(tf.keras.layers.Layer):
             inputs: clamped input
             cross_tick_states: states from the red arrows (cross ticks projection), a_i w_{ij}.
         """
-        if inputs is None:
-            inputs = tf.zeros((1, self.units))
+        if isinstance(cross_tick_states, list):
+            if len(cross_tick_states) == 0:
+                cross_tick_states = None
 
-        if cross_tick_states is None:
-            return self.time_averaging([inputs])
+        if inputs is None and cross_tick_states is None:
+            return self.time_averaging([tf.zeros((1, self.units))])
 
-        return self.time_averaging(
-            [inputs, *cross_tick_states]
-        )  # Note that we end up merging inputs and cross_tick_states, separating them is only for clarity.
+        net_inputs = []
+
+        if inputs is not None:
+            net_inputs.append(inputs)
+
+        if cross_tick_states is not None:
+            net_inputs.extend(cross_tick_states)
+
+        return self.time_averaging(net_inputs)
 
     def reset_states(self):
         self.time_averaging.reset_states()
@@ -706,6 +713,10 @@ class HNSCell(tf.keras.layers.Layer):
         if x is None:
             return {name: None for name in self.spoke_names}
 
+        for name in self.spoke_names:
+            if name not in x.keys():
+                x[name] = None
+
         for name in x.keys():
             if name not in self.spoke_names:
                 raise ValueError(
@@ -719,16 +730,21 @@ class HNSCell(tf.keras.layers.Layer):
         inputs: Optional[Dict[str, tf.Tensor]] = None,
         last_act_hub: tf.Tensor = None,
         last_act_spokes: Optional[Dict[str, tf.Tensor]] = None,
-    ) -> Dict[str, tf.Tensor]:
+    ) -> Tuple[tf.Tensor, Dict[str, tf.Tensor]]:
         """Call the HNSCell.
 
         Args:
             inputs (dict): clamped inputs with spoke names as keys.
             last_act_hub (tf.Tensor): last activation of the hub.
             last_act_spokes (dict): last activations of the spokes with spoke names as keys.
+
+        Returns:
+            act_hub (tf.Tensor): activation of the hub.
+            act_spokes (dict): activations of the spokes with spoke names as keys.
         """
 
         inputs = self._validate_spoke_x(inputs)
+
         last_act_spokes = self._validate_spoke_x(last_act_spokes)
 
         act_spokes = {}
@@ -746,9 +762,7 @@ class HNSCell(tf.keras.layers.Layer):
                     last_act_spokes[name] @ getattr(self, f"w_s{i}s{i}")
                 )
 
-            act_spokes[name] = getattr(self, name)(
-                inputs[name], cross_tick_states=cross_tick_states
-            )
+            act_spokes[name] = getattr(self, name)(inputs[name], cross_tick_states)
 
             # Also append the inputs to hub
             inputs_to_hub.append(act_spokes[name] @ getattr(self, f"w_s{i}h"))
@@ -764,3 +778,70 @@ class HNSCell(tf.keras.layers.Layer):
         self.hub.reset_states()
         for name in self.spoke_names:
             getattr(self, name).reset_states()
+
+
+class HNSLayer(tf.keras.layers.Layer):
+    def __init__(
+        self,
+        tau: float,
+        hub_name: str,
+        hub_units: int,
+        spoke_names: List[str],
+        spoke_units: List[int],
+    ) -> None:
+        super().__init__()
+        self.tau = tau
+        self.hub_name, self.hub_units = hub_name, hub_units
+        self.spoke_names, self.spoke_units = spoke_names, spoke_units
+
+    def build(self, input_shape) -> None:
+        self.cell = HNSCell(
+            tau=self.tau,
+            hub_name=self.hub_name,
+            hub_units=self.hub_units,
+            spoke_names=self.spoke_names,
+            spoke_units=self.spoke_units,
+        )
+        self.built = True
+
+    @staticmethod
+    def _get_batch_size_and_max_tick(inputs: Dict[str, tf.Tensor]) -> Tuple[int]:
+        """Get the batch size and max ticks from inputs."""
+        for x in inputs.values():
+            if x is not None:
+                return x.shape[0], x.shape[1]
+        raise ValueError("No input is given, cannot infer batch size or max ticks.")
+
+    def call(self, inputs: Optional[Dict[str, tf.Tensor]] = None) -> List[tf.Tensor]:
+
+        inputs = self.cell._validate_spoke_x(inputs)
+        batch_size, max_ticks = self._get_batch_size_and_max_tick(inputs)
+
+        # Initialize activations in hub and spokes
+        hub = tf.zeros((batch_size, self.hub_units))
+        spokes = {}
+        for name, units in zip(self.spoke_names, self.spoke_units):
+            spokes[name] = tf.zeros((batch_size, units))
+
+        # Make containers for outputs
+        all_names = [self.hub_name, *self.spoke_names]
+        tf_arrays = {
+            name: tf.TensorArray(tf.float32, size=max_ticks) for name in all_names
+        }
+
+        # Unrolling
+        for t in range(max_ticks):
+            hub, spokes = self.cell(
+                inputs={name: v[:, t] for name, v in inputs.items() if v is not None},
+                last_act_hub=hub,
+                last_act_spokes=spokes,
+            )
+
+            # Write hub and spokes activation to the container
+            tf_arrays[self.hub_name] = tf_arrays[self.hub_name].write(t, hub)
+            for name, spoke in spokes.items():
+                tf_arrays[name] = tf_arrays[name].write(t, spoke)
+
+        self.cell.reset_states()
+
+        return {name: reshape_proper(tf_arrays[name]) for name in all_names}
