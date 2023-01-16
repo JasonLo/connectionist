@@ -812,7 +812,7 @@ class HNSLayer(tf.keras.layers.Layer):
                 return x.shape[0], x.shape[1]
         raise ValueError("No input is given, cannot infer batch size or max ticks.")
 
-    def call(self, inputs: Optional[Dict[str, tf.Tensor]] = None) -> List[tf.Tensor]:
+    def call(self, inputs: Dict[str, tf.Tensor]) -> List[tf.Tensor]:
 
         inputs = self.cell._validate_spoke_x(inputs)
         batch_size, max_ticks = self._get_batch_size_and_max_tick(inputs)
