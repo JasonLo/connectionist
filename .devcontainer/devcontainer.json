@@ -22,7 +22,8 @@
 		"ms-toolsai.jupyter",
 		"ms-vscode.live-server",
 		"hediet.vscode-drawio",
-		"GitHub.vscode-pull-request-github"
+		"GitHub.vscode-pull-request-github",
+		"GitHub.copilot-labs"
 	],
     "settings": {
         "python.formatting.provider": "black",
