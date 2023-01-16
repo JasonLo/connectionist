@@ -1,0 +1,7 @@
+site_name: Connectionist
+site_url: https://connectionist.readthedocs.io/en/latest/
+site_description: Documentation for connectionist python package
+site_author: Jason Lo
+theme: readthedocs
+copyright: MIT License
+
