@@ -580,3 +580,187 @@ class PMSPLayer(tf.keras.layers.Layer):
         self.cell.reset_states()
 
         return {name: reshape_proper(tf_arrays[name]) for name in output_names}
+
+
+class Spoke(tf.keras.layers.Layer):
+    """A spoke in the hub-and-spokes model."""
+
+    def __init__(
+        self,
+        tau: float,
+        units: int,
+        average_at="after_activation",
+        activation="sigmoid",
+        **kwargs,
+    ) -> None:
+        super().__init__()
+        self.tau = tau
+        self.units = units  # Begin explicit to cater for `None` input (which is possible in the hub-and-spokes model)
+        self.time_averaging = MultiInputTimeAveraging(
+            tau=self.tau, average_at=average_at, activation=activation, **kwargs
+        )
+
+    def call(
+        self, inputs: tf.Tensor = None, cross_tick_states: List[tf.Tensor] = None
+    ) -> tf.Tensor:  # to avoid confusing with `self.time_averaging.states` (a_{t-1}), I use a new name `cross_tick_states` here to represent the cross ticks connection.
+        """Call the spoke.
+
+        Args:
+            inputs: clamped input
+            cross_tick_states: states from the red arrows (cross ticks projection), a_i w_{ij}.
+        """
+        if inputs is None:
+            inputs = tf.zeros((1, self.units))
+
+        if cross_tick_states is None:
+            return self.time_averaging([inputs])
+
+        return self.time_averaging(
+            [inputs, *cross_tick_states]
+        )  # Note that we end up merging inputs and cross_tick_states, separating them is only for clarity.
+
+    def reset_states(self):
+        self.time_averaging.reset_states()
+
+
+class HNSCell(tf.keras.layers.Layer):
+    def __init__(
+        self,
+        tau: float,
+        hub_name: str,
+        hub_units: int,
+        spoke_names: List[str],
+        spoke_units: List[int],
+    ) -> None:
+        super().__init__()
+        self.tau = tau
+        self.hub_name = hub_name
+        self.hub_units = hub_units
+        self.spoke_names = spoke_names
+        self.spoke_units = spoke_units
+
+    def build(self, input_shape) -> None:
+
+        # Hub
+        self.hub = MultiInputTimeAveraging(
+            tau=self.tau,
+            average_at="after_activation",
+            activation="sigmoid",
+            use_bias=True,
+            name=self.hub_name,
+        )
+        self.w_hh = self.add_weight(
+            shape=(self.hub_units, self.hub_units),
+            initializer="random_normal",
+            trainable=True,
+            name="w_hh",
+        )
+
+        # Spokes
+        for i, (name, units) in enumerate(zip(self.spoke_names, self.spoke_units)):
+            setattr(self, name, Spoke(tau=self.tau, units=units, name=name))
+
+            # Outgoing connection weights (w_sih)
+            setattr(
+                self,
+                f"w_s{i}h",
+                self.add_weight(
+                    shape=(units, self.hub_units),
+                    initializer="random_normal",
+                    trainable=True,
+                    name=f"w_s{i}h",
+                ),
+            )
+
+            # Self connection weights (w_sisi)
+            setattr(
+                self,
+                f"w_s{i}s{i}",
+                self.add_weight(
+                    shape=(units, units),
+                    initializer="random_normal",
+                    trainable=True,
+                    name=f"w_s{i}s{i}",
+                ),
+            )
+
+            # Incoming connection weights (w_hsi)
+            setattr(
+                self,
+                f"w_hs{i}",
+                self.add_weight(
+                    shape=(self.hub_units, units),
+                    initializer="random_normal",
+                    trainable=True,
+                    name=f"w_hs{i}",
+                ),
+            )
+
+        self.built = True
+
+    def _validate_spoke_x(
+        self, x: Optional[Dict[str, tf.Tensor]]
+    ) -> Dict[str, Optional[tf.Tensor]]:
+        """Validate and clean inputs and last_act_spokes."""
+
+        if x is None:
+            return {name: None for name in self.spoke_names}
+
+        for name in x.keys():
+            if name not in self.spoke_names:
+                raise ValueError(
+                    f"{name} is not one of the spoke name: {self.spoke_names}."
+                )
+
+        return x
+
+    def call(
+        self,
+        inputs: Optional[Dict[str, tf.Tensor]] = None,
+        last_act_hub: tf.Tensor = None,
+        last_act_spokes: Optional[Dict[str, tf.Tensor]] = None,
+    ) -> Dict[str, tf.Tensor]:
+        """Call the HNSCell.
+
+        Args:
+            inputs (dict): clamped inputs with spoke names as keys.
+            last_act_hub (tf.Tensor): last activation of the hub.
+            last_act_spokes (dict): last activations of the spokes with spoke names as keys.
+        """
+
+        inputs = self._validate_spoke_x(inputs)
+        last_act_spokes = self._validate_spoke_x(last_act_spokes)
+
+        act_spokes = {}
+        inputs_to_hub = []
+
+        # Calculate spokes activations
+        for i, name in enumerate(self.spoke_names):
+            cross_tick_states = []
+
+            if last_act_hub is not None:  # From Hub
+                cross_tick_states.append(last_act_hub @ getattr(self, f"w_hs{i}"))
+
+            if last_act_spokes[name] is not None:  # From self-connection
+                cross_tick_states.append(
+                    last_act_spokes[name] @ getattr(self, f"w_s{i}s{i}")
+                )
+
+            act_spokes[name] = getattr(self, name)(
+                inputs[name], cross_tick_states=cross_tick_states
+            )
+
+            # Also append the inputs to hub
+            inputs_to_hub.append(act_spokes[name] @ getattr(self, f"w_s{i}h"))
+
+        # calculate hub activation
+        if last_act_hub is not None:
+            inputs_to_hub.append(last_act_hub @ self.w_hh)
+
+        act_hub = self.hub(inputs_to_hub)
+        return act_hub, act_spokes
+
+    def reset_states(self) -> None:
+        self.hub.reset_states()
+        for name in self.spoke_names:
+            getattr(self, name).reset_states()
