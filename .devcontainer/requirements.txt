@@ -1,3 +1,4 @@
 hatch
 twine
 build
+mkdocs
