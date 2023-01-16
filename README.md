@@ -1,5 +1,7 @@
 # Connectionist
 
+[![Documentation Status](https://readthedocs.org/projects/connectionist/badge/?version=latest)](https://connectionist.readthedocs.io/en/latest/?badge=latest)
+
 Tools for classical connectionist models of reading with TensorFlow
 
 ## Requirements
@@ -30,7 +32,6 @@ model.compile(
     optimizer=tf.keras.optimizers.Adam(),
     loss=tf.keras.losses.BinaryCrossentropy(),
 )
-
 model.fit(data.x_train, data.y_train, epochs=3, batch_size=20)
 model(data.x_train)
 
