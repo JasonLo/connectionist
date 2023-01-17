@@ -219,6 +219,8 @@ class PMSP(tf.keras.Model):
     def add_noise(self, layer: str, stddev: float) -> None:
         """Add noise to the target layer.
 
+        The noise is active in both training and inference.
+
         Args:
             layer: the target layer, choose from ['hidden', 'phonology', 'cleanup']
             stddev: the standard deviation of the noise

@@ -279,7 +279,7 @@ class TimeAveragedRNNCell(tf.keras.layers.Layer):
             outputs,
         )  # Consistent with the RNN API, one for state and one for output
 
-    def reset_states(self) -> None:  # TODO: maybe need another name
+    def reset_states(self) -> None:
         self.time_averaging.reset_states()  # Reset the states of the time-averaging mechanism (last activation = None)
 
 
@@ -453,10 +453,10 @@ class PMSPCell(tf.keras.layers.Layer):
             # Do NOT rely on shape broadcasting, since each value must have a random noise value
             _zeros = tf.zeros((batch_size, getattr(self, f"{layer_name[0]}_units")))
 
-            # TODO: confirm whether noise should behave differently in training and inference
             # I use `f"{layer_name}_noise"` instead of `noise` because `input_to` will be flattened at the end
+            # Training is always True, because we want to add noise even during testing
             inputs_to[layer_name][f"{layer_name}_noise"] = self.noise[layer_name](
-                _zeros, training=training
+                _zeros, training=True
             )
 
             # Append x @ w for each incoming connection
