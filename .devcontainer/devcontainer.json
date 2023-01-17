@@ -1,8 +1,6 @@
 {
     "name": "connectionist",
-    "build": {
-        "dockerfile": "Dockerfile"
-    },
+    "image": "tensorflow/tensorflow:2.11.0-gpu-jupyter",
     "runArgs": [
         "--gpus",
         "all"
