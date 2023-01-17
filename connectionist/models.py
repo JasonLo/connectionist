@@ -1,6 +1,6 @@
-from typing import Dict, Union, List
+from typing import Dict, Union, List, Tuple
 import tensorflow as tf
-from connectionist.layers import PMSPLayer
+from connectionist.layers import PMSPLayer, HNSLayer
 from connectionist.damage.shrink_layer import SurgeryPlan, Surgeon, make_recipient
 from connectionist.damage.utils import copy_transplant
 
@@ -258,3 +258,62 @@ class PMSP(tf.keras.Model):
             copy_transplant(donor=self, recipient=new_model, weight_name=weight_name)
 
         return new_model
+
+
+class HubAndSpokes(tf.keras.Model):
+    def __init__(
+        self,
+        tau: float,
+        hub_name: str,
+        hub_units: int,
+        spoke_names: List[str],
+        spoke_units: List[int],
+    ) -> None:
+
+        super().__init__()
+
+        self.tau = tau
+        self.hub_name, self.hub_units = hub_name, hub_units
+        self.spoke_names, self.spoke_units = spoke_names, spoke_units
+
+        self.hns = HNSLayer(
+            tau=tau,
+            hub_name=hub_name,
+            hub_units=hub_units,
+            spoke_names=spoke_names,
+            spoke_units=spoke_units,
+        )
+
+    def call(self, x: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
+        return self.hns(x)
+
+    def train_step(self, data: Tuple[Dict[str, tf.Tensor]]) -> Dict[str, tf.Tensor]:
+        """Train the model for one step, return losses and metrics."""
+
+        x, y = data
+
+        with tf.GradientTape() as tape:
+            y_pred = self(x, training=True)
+
+            all_losses = []
+
+            # Only inject error according to y_train keys
+            for y_name, y_target in y.items():
+                sum_loss = tf.reduce_sum(
+                    self.compiled_loss(y_true=y_target, y_pred=y_pred[y_name])
+                )  # reduce over batch_size axis
+                all_losses.append(sum_loss)
+
+            loss_value = tf.reduce_sum(
+                all_losses
+            )  # Final loss value is the grand sum over every axis (output layer, batch size, time ticks, units).
+
+        grads = tape.gradient(
+            loss_value, self.trainable_weights
+        )  # compute gradients dL/dw
+        self.optimizer.apply_gradients(
+            zip(grads, self.trainable_weights)
+        )  # update weights using stock optimizer
+
+        self.compiled_metrics.update_state(y, y_pred)  # update metrics
+        return {m.name: m.result() for m in self.metrics}
