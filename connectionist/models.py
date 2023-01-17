@@ -1,8 +1,7 @@
 from typing import Dict, Union, List, Tuple
 import tensorflow as tf
 from connectionist.layers import PMSPLayer, HNSLayer
-from connectionist.damage.shrink_layer import SurgeryPlan, Surgeon, make_recipient
-from connectionist.damage.utils import copy_transplant
+from connectionist.surgery import SurgeryPlan, Surgeon, make_recipient, copy_transplant
 
 
 class PMSP(tf.keras.Model):

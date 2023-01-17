@@ -20,11 +20,9 @@ pip install connectionist
 End-to-end toy example with Plaut, McClelland, Seidenberg and Patterson (1996), simulation 3 model:
 
 ```python
-
 import tensorflow as tf
 from connectionist.data import ToyOP
 from connectionist.models import PMSP
-from connectionist.damage.utils import get_weights, get_suffix
 
 data = ToyOP()
 model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
@@ -34,7 +32,6 @@ model.compile(
 )
 model.fit(data.x_train, data.y_train, epochs=3, batch_size=20)
 model(data.x_train)
-
 ```
 
 ## Modules overview
