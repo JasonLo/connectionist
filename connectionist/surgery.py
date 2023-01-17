@@ -1,6 +1,6 @@
 import random
 from dataclasses import dataclass
-from typing import Callable, List
+from typing import Callable, List, Tuple
 import tensorflow as tf
 
 
@@ -218,3 +218,63 @@ class Surgeon:
         ]
         for name in remaining_weights:
             copy_transplant(donor=donor, recipient=recipient, weight_name=name)
+
+
+class ZeroOut(tf.keras.constraints.Constraint):
+    """A stateful constraint that zeros out weights at specified rate.
+
+    It will randomly generate a stateful mask that zeros out weights at specified rate when first called.
+    It will then apply the same mask to the weights when called again.
+
+    Args:
+        rate (float): The rate of weights to zero out.
+    """
+
+    def __init__(self, rate: float):
+        self.rate = rate
+        self.zero_locs = None
+        self.last_shape = None
+
+    @staticmethod
+    def random_sample_loc(shape: tf.TensorShape, n: int) -> List[Tuple[int]]:
+        """Randomly sample n locations from a 2d tensor with `shape` without replacement."""
+
+        locs = []
+        while len(locs) < n:
+            x_loc = tf.random.uniform(shape=[1], maxval=shape[0], dtype=tf.int32)
+            y_loc = tf.random.uniform(shape=[1], maxval=shape[1], dtype=tf.int32)
+            loc = (x_loc.numpy()[0], y_loc.numpy()[0])
+            if loc not in locs:
+                locs.append(loc)
+
+        return locs
+
+    def generate_stateful_mask(self, w: tf.Tensor) -> tf.Variable:
+        """Generate a stateful mask for the given weights."""
+
+        # Generate a un-trainable random mask.
+        mask = tf.Variable(initial_value=tf.ones_like(w), trainable=False)
+
+        if self.zero_locs is None:
+            n = mask.shape[0] * mask.shape[1]
+            n_zero = int(n * self.rate)
+            self.zero_locs = self.random_sample_loc(mask.shape, n_zero)
+
+        for loc in self.zero_locs:
+            mask = mask[loc[0], loc[1]].assign(0)
+
+        return mask
+
+    def __call__(self, w: tf.Tensor) -> tf.Tensor:
+
+        # First call
+        if self.last_shape is None:
+            self.last_shape = w.shape
+            self.mask = self.generate_stateful_mask(w)
+
+        if self.last_shape != w.shape:
+            raise ValueError(
+                f"The shape of the weights: {w.shape} has changed since last call: {self.last_shape}. Need to reinitialize the constraint."
+            )
+
+        return w * tf.cast(self.mask, w.dtype)
