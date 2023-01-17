@@ -324,6 +324,7 @@ class PMSPCell(tf.keras.layers.Layer):
         p_noise: float = 0.0,
         c_noise: float = 0.0,
         connections: List[str] = None,
+        l2: float = 0.0,
     ) -> None:
 
         super().__init__()
@@ -343,6 +344,8 @@ class PMSPCell(tf.keras.layers.Layer):
             connections = ["oh", "ph", "hp", "pp", "cp", "pc"]
 
         self.connections = connections
+
+        self.l2 = l2
 
     @property
     def all_layers_names(self) -> List[str]:
@@ -366,28 +369,30 @@ class PMSPCell(tf.keras.layers.Layer):
         if noise < 0.0:
             raise ValueError("Noise must be > 0")
 
-    def get_connection_shape(
-        self, connection: str, input_shape: tf.TensorShape
-    ) -> List[int]:
+    def get_connection_units(self, connection: str) -> int:
 
-        layer2units = {
-            "o": input_shape[-1],
+        self._validate_connections([connection])
+        target = connection[-1]
+        return {
             "h": self.h_units,
             "p": self.p_units,
             "c": self.c_units,
-        }
-
-        return [layer2units[layer] for layer in connection]
+        }[target]
 
     def build(self, input_shape: tf.TensorShape) -> None:
+
+        regularizer = tf.keras.regularizers.L2(self.l2)
 
         for connection in self.connections:
             setattr(
                 self,
                 connection,
-                self.add_weight(
+                tf.keras.layers.Dense(
+                    units=self.get_connection_units(connection),
+                    use_bias=False,
                     name=connection,
-                    shape=self.get_connection_shape(connection, input_shape),
+                    kernel_regularizer=regularizer,
+                    bias_regularizer=regularizer,
                 ),
             )
 
@@ -397,6 +402,7 @@ class PMSPCell(tf.keras.layers.Layer):
             tau=self.tau,
             average_at="after_activation",
             activation="sigmoid",
+            bias_regularizer=regularizer,  # Only have bias in MITA layer
         )
 
         for layer in self.all_layers_names:
@@ -462,7 +468,7 @@ class PMSPCell(tf.keras.layers.Layer):
             # Append x @ w for each incoming connection
             if self._has_connection(layer_name):
                 for conn in self.get_connections(layer_name):
-                    inputs_to[layer_name][conn] = get_input(conn) @ getattr(self, conn)
+                    inputs_to[layer_name][conn] = getattr(self, conn)(get_input(conn))
 
             # Layer activation (bias is inside the MultiInputTimeAveraging layer, so we don't need to add it here)
             layer_activations[layer_name] = getattr(self, layer_name)(
@@ -502,6 +508,7 @@ class PMSPLayer(tf.keras.layers.Layer):
         p_noise: float = 0.0,
         c_noise: float = 0.0,
         connections: List[str] = None,
+        l2: float = 0.0,
     ) -> None:
         super().__init__()
 
@@ -510,6 +517,7 @@ class PMSPLayer(tf.keras.layers.Layer):
         self.h_units, self.p_units, self.c_units = h_units, p_units, c_units
         self.h_noise, self.p_noise, self.c_noise = h_noise, p_noise, c_noise
         self.connections = connections
+        self.l2 = l2
 
     def build(self, input_shape: tf.TensorShape) -> None:
         self.cell = PMSPCell(
@@ -521,6 +529,7 @@ class PMSPLayer(tf.keras.layers.Layer):
             p_noise=self.p_noise,
             c_noise=self.c_noise,
             connections=self.connections,
+            l2=self.l2,
         )
 
         # Lifting `all_layers_name` from cell to layer for easier access
