@@ -13,9 +13,13 @@ class MaskedBinaryCrossEntropy(tf.keras.losses.Loss):
     """
 
     def __init__(
-        self, mask_value: int = None, name="masked_binary_crossentropy", **kwargs
+        self,
+        mask_value: int = None,
+        name="masked_binary_crossentropy",
+        reduction="none",
+        **kwargs
     ) -> None:
-        super().__init__(name=name, **kwargs)
+        super().__init__(name=name, reduction=reduction, **kwargs)
         self.mask_value = mask_value
 
     def call(self, y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
