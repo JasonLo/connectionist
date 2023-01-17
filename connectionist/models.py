@@ -55,6 +55,7 @@ class PMSP(tf.keras.Model):
         p_noise: float = 0.0,
         c_noise: float = 0.0,
         connections: List[str] = None,
+        l2: float = 0.0,
     ) -> None:
         super().__init__()
 
@@ -66,6 +67,7 @@ class PMSP(tf.keras.Model):
         self.p_noise = p_noise
         self.c_noise = c_noise
         self.connections = connections
+        self.l2 = l2
 
         if connections is None:
             self.connections = ["oh", "ph", "hp", "pp", "cp", "pc"]
@@ -79,11 +81,27 @@ class PMSP(tf.keras.Model):
             p_noise=self.p_noise,
             c_noise=self.c_noise,
             connections=self.connections,
+            l2=self.l2,
         )
 
     @property
     def all_layers_names(self) -> List[str]:
         return self.pmsp.all_layers_names
+
+    @property
+    def connection_locs(self) -> Dict[str, Dict[str, int]]:
+        """A map that shows which axis of a weight is connecting to a layer."""
+
+        return {layer: self._find_conn_locs(layer) for layer in self.all_layers_names}
+
+    @property
+    def weights_abbreviations(self) -> Dict[str, str]:
+        """Weights name abbreviations. (e.g., w_oh, bias_hidden)."""
+
+        weights = {f"w_{w}": f"{w}/kernel:0" for w in self.connections}
+
+        biases = {f"bias_{layer}": f"{layer}/bias:0" for layer in self.all_layers_names}
+        return {**weights, **biases}
 
     def call(
         self, inputs: tf.Tensor, training: bool = False, return_internals: bool = False
@@ -102,14 +120,7 @@ class PMSP(tf.keras.Model):
             connections=self.connections,
         )
 
-    @property
-    def weights_abbreviations(self) -> Dict[str, str]:
-        """Weights name abbrevations. (e.g., w_oh, bias_hidden)."""
-
-        weights = {f"w_{w}": f"{w}:0" for w in self.connections}
-
-        biases = {f"bias_{layer}": f"{layer}/bias:0" for layer in self.all_layers_names}
-        return {**weights, **biases}
+    # Miscellaneous internal methods
 
     def _find_conn_locs(self, layer: str) -> Dict[str, int]:
         """Find the connection locations of the target layer."""
@@ -127,12 +138,6 @@ class PMSP(tf.keras.Model):
         conn_bias = {f"bias_{layer}": [0]}
         return {**conn_weights, **conn_bias}
 
-    @property
-    def connection_locs(self) -> Dict[str, Dict[str, int]]:
-        """A map that shows which axis of a weight is connecting to a layer."""
-
-        return {layer: self._find_conn_locs(layer) for layer in self.all_layers_names}
-
     def _validate_layer(self, layer: str) -> None:
         """Validate the target layer."""
 
@@ -147,7 +152,7 @@ class PMSP(tf.keras.Model):
                 f"Unknown connections: {connections}, please choose from {self.connections}"
             )
 
-    def get_units(self, layer: str) -> int:
+    def _to_units(self, layer: str) -> int:
         """Get the number of units in the target layer.
 
         Args:
@@ -161,12 +166,17 @@ class PMSP(tf.keras.Model):
         }
         return mapping[layer]
 
-    def shrink_layer(self, layer: str, rate: float) -> None:
+    # Extra methods for damaging the model
+
+    def shrink_layer(self, layer: str, rate: float) -> tf.keras.Model:
         """Shrink the weights of the target layer.
 
         Args:
             layer: the target layer, choose from ['hidden', 'phonology', 'cleanup']
             rate: the shrink rate
+
+        Returns:
+            A new model with the same architecture, but with new weights shapes that match with the shrank layer.
 
         Example:
 
@@ -187,7 +197,7 @@ class PMSP(tf.keras.Model):
         self._validate_layer(layer)
 
         plan = SurgeryPlan(
-            layer=layer, original_units=self.get_units(layer), shrink_rate=rate
+            layer=layer, original_units=self._to_units(layer), shrink_rate=rate
         )
         surgeon = Surgeon(surgery_plan=plan)
 
@@ -198,16 +208,10 @@ class PMSP(tf.keras.Model):
         surgeon.transplant(donor=self, recipient=new_model)
         return new_model
 
-    def cut_connections(self, connections: List[str]) -> None:
-        """Cut connections between two layers."""
+    def _build_and_transplant(self, config: dict) -> tf.keras.Model:
+        """Build a new model with the same architecture with new config."""
 
-        self._validate_connections(connections)
-
-        # Create recipient model with less conections
-        model_config = self.get_config()
-        remaining_connections = [c for c in self.connections if c not in connections]
-        model_config.update(connections=remaining_connections)
-        new_model = PMSP(**model_config)
+        new_model = PMSP(**config)
         new_model.build(input_shape=self.pmsp._build_input_shape)
 
         # Copy weights
@@ -216,7 +220,26 @@ class PMSP(tf.keras.Model):
 
         return new_model
 
-    def add_noise(self, layer: str, stddev: float) -> None:
+    def cut_connections(self, connections: List[str]) -> tf.keras.Model:
+        """Cut connections between two layers.
+
+        Args:
+            connections: the connections to be cut, the connections most be found in the original model, i.e., in `model.connections`.
+
+        Returns:
+            A new model with the same architecture, but with new connections.
+
+        """
+
+        self._validate_connections(connections)
+
+        # Create recipient model with less connections
+        model_config = self.get_config()
+        remaining_connections = [c for c in self.connections if c not in connections]
+        model_config.update(connections=remaining_connections)
+        return self._build_and_transplant(model_config)
+
+    def add_noise(self, layer: str, stddev: float) -> tf.keras.Model:
         """Add noise to the target layer.
 
         The noise is active in both training and inference.
@@ -251,14 +274,14 @@ class PMSP(tf.keras.Model):
 
         noise_name = _to_noise_name(layer)
         model_config[noise_name] = model_config[noise_name] + stddev
-        new_model = PMSP(**model_config)
-        new_model.build(input_shape=self.pmsp._build_input_shape)
+        return self._build_and_transplant(model_config)
 
-        # Copy weights
-        for weight_name in new_model.weights_abbreviations.keys():
-            copy_transplant(donor=self, recipient=new_model, weight_name=weight_name)
+    def add_l2(self, l2: float) -> tf.keras.Model:
+        """Add L2 regularization to all the weights and biases in the model."""
 
-        return new_model
+        model_config = self.get_config()
+        model_config.update(l2=l2)
+        return self._build_and_transplant(model_config)
 
 
 class HubAndSpokes(tf.keras.Model):

@@ -84,13 +84,13 @@ class SurgeryPlan:
 
         # Keeping `keep_n` units
         self.keep_n = int(self.original_units * (1 - self.shrink_rate))
-        print(f"Keeping {self.keep_n} out of {self.original_units} orginal units")
+        print(f"Keeping {self.keep_n} out of {self.original_units} original units")
         if self.keep_n == 0:
             raise ValueError(
                 f"Shrink rate {self.shrink_rate} is too high, no units left."
             )
 
-        # Generate indices to keep (shared across all weigths)
+        # Generate indices to keep (shared across all weights)
         self.keep_idx = sorted(random.sample(range(self.original_units), self.keep_n))
         print(f"Keep indices are: {self.keep_idx}")
 
@@ -115,7 +115,7 @@ def make_recipient(model, surgery_plan: SurgeryPlan, make_model_fn: Callable):
 
 
 class Surgeon:
-    """A class for transplanting weights from one model to another according to sugery_plan.
+    """A class for transplanting weights from one model to another according to surgery_plan.
 
     Args:
         surgery_plan: A surgery plan for the transplant (specifying where the damage happens).
@@ -140,7 +140,7 @@ class Surgeon:
     plan = SurgeryPlan(layer='hidden', original_units=10, shrink_rate=0.5)
     surgeon = Surgeon(surgery_plan=plan)
 
-    # Create receipient model and transplant weights
+    # Create recipient model and transplant weights
     new_model = make_recipient(model=donor_model, surgery_plan=plan, make_model_fn=PMSP)
     new_model.build(input_shape=donor_model.pmsp._build_input_shape)
     surgeon.transplant(donor=donor_model, recipient=new_model)
