@@ -1,0 +1,3 @@
+# TimeAveragingDense
+
+::: connectionist.layers.TimeAveragedDense

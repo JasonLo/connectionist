@@ -33,27 +33,56 @@ def reshape_proper(a: tf.TensorArray, perm: List[int] = None) -> tf.TensorArray:
 
 
 class TimeAveragedDense(tf.keras.layers.Dense):
-    """Dense layer with Time-averaging mechanism.
-
-    In short, time-averaging mechanism simulates continuous-temporal dynamics in a discrete-time recurrent neural networks.
-    See Plaut, McClelland, Seidenberg, and Patterson (1996) equation (15) for more details.
+    r"""This layer simulates continuous-temporal dynamics with time-averaged input/output.
 
     Args:
-        tau (float): Time-averaging parameter (How much information should take from the new input). range: [0, 1].
+        tau (float): Time-averaging parameter, from 0 to 1.
+        average_at (str): Select where to average, 'before_activation' or 'after_activation'.
+        kwargs (str, optional): Any argument in `keras.layers.Dense`.
 
-        average_at (str): Where to average. Options: 'before_activation', 'after_activation'.
+    ### Time-averaged input
 
-            When average_at is 'before_activation', the time-averaging is applied BEFORE activation. i.e., time-averaging INPUT.:
-                outputs = activation(integrated_input);
-                integrated input = tau * (inputs @ weights + bias) + (1-tau) * last_integrated_input;
-                last_integrated_input is obtained from the last call of this layer, its values stored at `self.states`
+    Defines as:
 
-            When average_at is 'after_activation', the time-averaging is applied AFTER activation. i.e., time-averaging OUTPUT.:
-                outputs = tau * activation(inputs @ weights + bias) + (1-tau) * last_outputs;
-                last_outputs is obtained from the last call of this layer, its values stored at `self.states`
+    ```math
+    a_t = act(s_t)
+    ```
+    ```math
+    s_t = \tau \cdot (x_t w + b) + (1-\tau) \cdot s_{t-1}
+    ```
 
-        kwargs (str, optional): Any argument in keras.layers.Dense. (e.g., units, activation, use_bias, kernel_initializer, bias_initializer,
-            kernel_regularizer, bias_regularizer, activity_regularizer, kernel_constraint, bias_constraint, **kwargs).
+    - $`a_t`$: activation at time $`t`$
+    - $`s_t`$: state at time $`t`$
+    - $`\tau`$: time constant, smaller means slower temporal dynamics.
+    - $`x_t`$: input at time $`t`$
+    - $`w`$: weight matrix (provided by this layer)
+    - $`b`$: bias vector (provided by this layer)
+
+    Code example:
+
+    ```python
+    layer = TimeAveragedDense(tau=0.1, average_at="before_activation", units=10)
+    ```
+
+    ### Time-averaged output
+
+    Defines as:
+
+    ```math
+    a_t = \tau \cdot act(x_t w + b) + (1-\tau) \cdot a_{t-1}
+    ```
+
+    - $`a_t`$: activation at time $`t`$
+    - $`\tau`$: time constant, smaller means slower temporal dynamics.
+    - $`x_t`$: input at time $`t`$
+    - $`w`$: weight matrix (provided by this layer)
+    - $`b`$: bias vector (provided by this layer)
+
+    Code example:
+
+    ```python
+    layer = TimeAveragedDense(tau=0.1, average_at="after_activation", units=10)
+    ```
 
     """
 
