@@ -113,6 +113,57 @@ class TimeAveragedDense(tf.keras.layers.Dense):
         return config
 
 
+class ZeroOutDense(tf.keras.layers.Dense):
+    """Dense layer with zero-out (weight masking) mechanism."""
+
+    def __init__(self, zero_out_rate: float, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.zero_out_rate = zero_out_rate
+
+    def build(self, input_shape: tf.TensorShape) -> None:
+        super().build(input_shape)
+
+        # Create a mask to zero-out the weights.
+        self.zero_out_mask = tf.Variable(
+            tf.ones(self.kernel.shape), trainable=False, dtype=tf.float32
+        )
+
+        self.zero_out_mask.assign(
+            tf.where(
+                tf.random.uniform(self.kernel.shape) < self.zero_out_rate,
+                tf.zeros(self.kernel.shape, dtype=tf.float32),
+                tf.ones(self.kernel.shape, dtype=tf.float32),
+            )
+        )
+
+        # Also zero-out the initialized values.
+        self.kernel.assign(self.kernel * self.zero_out_mask)
+
+    def zero_out_weights(self) -> None:
+        """Manually zero-out the weights."""
+        self.kernel.assign(self.kernel * self.zero_out_mask)
+
+    def call(self, inputs):
+
+        # Masked kernel is require to makes masked weight's gradient zero during back-propagation.
+        # Because: d_kernel = zero_out_mask * d_masked_kernel
+        masked_kernel = self.kernel * self.zero_out_mask
+        outputs = inputs @ masked_kernel
+
+        if self.use_bias:
+            outputs = tf.nn.bias_add(outputs, self.bias)
+
+        if self.activation is not None:
+            outputs = self.activation(outputs)
+
+        return outputs
+
+    def get_config(self) -> dict:
+        config = super().get_config()
+        config.update({"zero_out_rate": self.zero_out_rate})
+        return config
+
+
 class MultiInputTimeAveraging(tf.keras.layers.Layer):
     """Time-averaging mechanism for multiple inputs.
 
@@ -324,6 +375,7 @@ class PMSPCell(tf.keras.layers.Layer):
         p_noise: float = 0.0,
         c_noise: float = 0.0,
         connections: List[str] = None,
+        zero_out_rates: Dict[str, float] = None,
         l2: float = 0.0,
     ) -> None:
 
@@ -344,6 +396,12 @@ class PMSPCell(tf.keras.layers.Layer):
             connections = ["oh", "ph", "hp", "pp", "cp", "pc"]
 
         self.connections = connections
+
+        if zero_out_rates is not None:
+            self._validate_connections(zero_out_rates.keys())
+            self.zero_out_rates = zero_out_rates
+        else:
+            self.zero_out_rates = {c: 0.0 for c in self.connections}
 
         self.l2 = l2
 
@@ -387,12 +445,13 @@ class PMSPCell(tf.keras.layers.Layer):
             setattr(
                 self,
                 connection,
-                tf.keras.layers.Dense(
+                ZeroOutDense(
                     units=self.get_connection_units(connection),
                     use_bias=False,
                     name=connection,
                     kernel_regularizer=regularizer,
                     bias_regularizer=regularizer,
+                    zero_out_rate=self.zero_out_rates.get(connection, 0.0),
                 ),
             )
 
@@ -491,6 +550,12 @@ class PMSPCell(tf.keras.layers.Layer):
         for layer in self.all_layers_names:
             getattr(self, layer).reset_states()
 
+    def zero_out_weights(self):
+        """Zero out weights of all layers."""
+
+        for conn in self.connections:
+            getattr(self, conn).zero_out_weights()
+
 
 class PMSPLayer(tf.keras.layers.Layer):
     """PMSP sim 3 model's layer.
@@ -508,6 +573,7 @@ class PMSPLayer(tf.keras.layers.Layer):
         p_noise: float = 0.0,
         c_noise: float = 0.0,
         connections: List[str] = None,
+        zero_out_rates: Dict[str, float] = None,
         l2: float = 0.0,
     ) -> None:
         super().__init__()
@@ -517,6 +583,7 @@ class PMSPLayer(tf.keras.layers.Layer):
         self.h_units, self.p_units, self.c_units = h_units, p_units, c_units
         self.h_noise, self.p_noise, self.c_noise = h_noise, p_noise, c_noise
         self.connections = connections
+        self.zero_out_rates = zero_out_rates
         self.l2 = l2
 
     def build(self, input_shape: tf.TensorShape) -> None:
@@ -529,6 +596,7 @@ class PMSPLayer(tf.keras.layers.Layer):
             p_noise=self.p_noise,
             c_noise=self.c_noise,
             connections=self.connections,
+            zero_out_rates=self.zero_out_rates,
             l2=self.l2,
         )
 

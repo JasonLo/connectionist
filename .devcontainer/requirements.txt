@@ -1,3 +1,4 @@
+black
 hatch
 twine
 build
