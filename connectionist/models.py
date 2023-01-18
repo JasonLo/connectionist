@@ -55,6 +55,7 @@ class PMSP(tf.keras.Model):
         p_noise: float = 0.0,
         c_noise: float = 0.0,
         connections: List[str] = None,
+        zero_out_rates: Dict[str, float] = None,
         l2: float = 0.0,
     ) -> None:
         super().__init__()
@@ -67,10 +68,14 @@ class PMSP(tf.keras.Model):
         self.p_noise = p_noise
         self.c_noise = c_noise
         self.connections = connections
+        self.zero_out_rates = zero_out_rates
         self.l2 = l2
 
         if connections is None:
             self.connections = ["oh", "ph", "hp", "pp", "cp", "pc"]
+
+        if zero_out_rates is None:
+            self.zero_out_rates = {conn: 0.0 for conn in self.connections}
 
         self.pmsp = PMSPLayer(
             tau=tau,
@@ -81,6 +86,7 @@ class PMSP(tf.keras.Model):
             p_noise=self.p_noise,
             c_noise=self.c_noise,
             connections=self.connections,
+            zero_out_rates=self.zero_out_rates,
             l2=self.l2,
         )
 
@@ -118,6 +124,8 @@ class PMSP(tf.keras.Model):
             p_noise=self.p_noise,
             c_noise=self.c_noise,
             connections=self.connections,
+            zero_out_rates=self.zero_out_rates,
+            l2=self.l2,
         )
 
     # Miscellaneous internal methods
@@ -218,6 +226,24 @@ class PMSP(tf.keras.Model):
         for weight_name in new_model.weights_abbreviations.keys():
             copy_transplant(donor=self, recipient=new_model, weight_name=weight_name)
 
+        return new_model
+
+    def zero_out(self, zero_out_rates: Dict[str, float]) -> tf.keras.Model:
+        """Zero out weights of the target connections.
+
+        Args:
+            zero_out_rates: the zero out rates for each connection. e.g., {'hc': 0.5, 'ph': 0.4}
+                            higher zero out rates means more weights will be zeroed out.
+
+        Returns:
+            A new model with the same architecture, but with new weights.
+
+        """
+
+        model_config = self.get_config()
+        model_config["zero_out_rates"].update(zero_out_rates)
+        new_model = self._build_and_transplant(model_config)
+        new_model.pmsp.cell.zero_out_weights()
         return new_model
 
     def cut_connections(self, connections: List[str]) -> tf.keras.Model:
