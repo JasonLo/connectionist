@@ -1,0 +1,3 @@
+# MultiInputTimeAveraging
+
+::: connectionist.layers.MultiInputTimeAveraging
