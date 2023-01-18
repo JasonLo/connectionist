@@ -125,7 +125,10 @@ class ZeroOutDense(tf.keras.layers.Dense):
 
         # Create a mask to zero-out the weights.
         self.zero_out_mask = tf.Variable(
-            tf.ones(self.kernel.shape), trainable=False, dtype=tf.float32
+            tf.ones(self.kernel.shape),
+            trainable=False,
+            dtype=tf.float32,
+            name="zero_out_mask",
         )
 
         self.zero_out_mask.assign(
@@ -519,7 +522,7 @@ class PMSPCell(tf.keras.layers.Layer):
             _zeros = tf.zeros((batch_size, getattr(self, f"{layer_name[0]}_units")))
 
             # I use `f"{layer_name}_noise"` instead of `noise` because `input_to` will be flattened at the end
-            # Training is always True, because we want to add noise even during testing
+            # Training is always True, because we want to add noise in both training and inference
             inputs_to[layer_name][f"{layer_name}_noise"] = self.noise[layer_name](
                 _zeros, training=True
             )
