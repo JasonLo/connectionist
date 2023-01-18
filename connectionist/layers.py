@@ -659,7 +659,7 @@ class PMSPLayer(tf.keras.layers.Layer):
 
         self.cell.reset_states()
 
-        return {name: reshape_proper(tf_arrays[name]) for name in output_names}
+        return {name: reshape_proper(arr) for name, arr in tf_arrays.items()}
 
 
 class Spoke(tf.keras.layers.Layer):
@@ -688,6 +688,8 @@ class Spoke(tf.keras.layers.Layer):
         Args:
             inputs: clamped input
             cross_tick_states: states from the red arrows (cross ticks projection), a_i w_{ij}.
+            return_internals: whether to return the internal states of the spoke.
+
         """
         if isinstance(cross_tick_states, list):
             if len(cross_tick_states) == 0:
@@ -810,6 +812,7 @@ class HNSCell(tf.keras.layers.Layer):
         inputs: Optional[Dict[str, tf.Tensor]] = None,
         last_act_hub: tf.Tensor = None,
         last_act_spokes: Optional[Dict[str, tf.Tensor]] = None,
+        return_internals: bool = False,
     ) -> Tuple[tf.Tensor, Dict[str, tf.Tensor]]:
         """Call the HNSCell.
 
@@ -817,42 +820,72 @@ class HNSCell(tf.keras.layers.Layer):
             inputs (dict): clamped inputs with spoke names as keys.
             last_act_hub (tf.Tensor): last activation of the hub.
             last_act_spokes (dict): last activations of the spokes with spoke names as keys.
+            return_internals (bool): whether to return the internal states of the spokes. (Default: False)
 
         Returns:
-            act_hub (tf.Tensor): activation of the hub.
-            act_spokes (dict): activations of the spokes with spoke names as keys.
+            If `return_internals` is False:
+                act_hub (tf.Tensor): activation of the hub.
+                act_spokes (dict): activations of the spokes with spoke names as keys.
+
+            If `return_internals` is True:
+
         """
 
         inputs = self._validate_spoke_x(inputs)
-
         last_act_spokes = self._validate_spoke_x(last_act_spokes)
 
-        act_spokes = {}
-        inputs_to_hub = []
+        layer_activations = {}
+        inputs_to = {}
 
-        # Calculate spokes activations
+        # Calculate spokes and hub activations
+        inputs_to_hub = []
         for i, name in enumerate(self.spoke_names):
+
             cross_tick_states = []
 
             if last_act_hub is not None:  # From Hub
-                cross_tick_states.append(last_act_hub @ getattr(self, f"w_hs{i}"))
+                h2s = last_act_hub @ getattr(self, f"w_hs{i}")
+                inputs_to[f"{self.hub_name}2{name}"] = h2s
+                cross_tick_states.append(h2s)
 
             if last_act_spokes[name] is not None:  # From self-connection
-                cross_tick_states.append(
-                    last_act_spokes[name] @ getattr(self, f"w_s{i}s{i}")
-                )
+                s2s = last_act_spokes[name] @ getattr(self, f"w_s{i}s{i}")
+                inputs_to[f"{name}2{name}"] = s2s
+                cross_tick_states.append(s2s)
 
-            act_spokes[name] = getattr(self, name)(inputs[name], cross_tick_states)
+            layer_activations[name] = getattr(self, name)(
+                inputs[name], cross_tick_states
+            )
 
             # Also append the inputs to hub
-            inputs_to_hub.append(act_spokes[name] @ getattr(self, f"w_s{i}h"))
+            s2h = layer_activations[name] @ getattr(self, f"w_s{i}h")
+            inputs_to[f"{name}2{self.hub_name}"] = s2h
+            inputs_to_hub.append(s2h)
 
         # calculate hub activation
         if last_act_hub is not None:
-            inputs_to_hub.append(last_act_hub @ self.w_hh)
+            h2h = last_act_hub @ self.w_hh
+            inputs_to[f"{self.hub_name}2{self.hub_name}"] = h2h
+            inputs_to_hub.append(h2h)
 
-        act_hub = self.hub(inputs_to_hub)
-        return act_hub, act_spokes
+        layer_activations[self.hub_name] = self.hub(inputs_to_hub)
+
+        # return act_hub, act_spokes
+
+        if return_internals:
+            return {**layer_activations, **inputs_to}
+
+        return layer_activations
+
+    @property
+    def internals_names(self) -> List[str]:
+        """Return the names of the internal connections in a cell."""
+
+        all_layer_names = self.spoke_names + [self.hub_name]
+        h2s = [f"{self.hub_name}2{name}" for name in self.spoke_names]
+        s2h = [f"{name}2{self.hub_name}" for name in self.spoke_names]
+        auto = [f"{name}2{name}" for name in all_layer_names]
+        return [*h2s, *s2h, *auto]
 
     def reset_states(self) -> None:
         self.hub.reset_states()
@@ -892,10 +925,22 @@ class HNSLayer(tf.keras.layers.Layer):
                 return x.shape[0], x.shape[1]
         raise ValueError("No input is given, cannot infer batch size or max ticks.")
 
-    def call(self, inputs: Dict[str, tf.Tensor]) -> List[tf.Tensor]:
+    def call(
+        self, inputs: Dict[str, tf.Tensor], return_internals: bool = False
+    ) -> Dict[str, tf.Tensor]:
 
         inputs = self.cell._validate_spoke_x(inputs)
         batch_size, max_ticks = self._get_batch_size_and_max_tick(inputs)
+
+        # Make containers for outputs
+        all_names = [self.hub_name, *self.spoke_names]
+
+        if return_internals:
+            all_names.extend(self.cell.internals_names)
+
+        tf_arrays = {
+            name: tf.TensorArray(tf.float32, size=max_ticks) for name in all_names
+        }
 
         # Initialize activations in hub and spokes
         hub = tf.zeros((batch_size, self.hub_units))
@@ -903,25 +948,23 @@ class HNSLayer(tf.keras.layers.Layer):
         for name, units in zip(self.spoke_names, self.spoke_units):
             spokes[name] = tf.zeros((batch_size, units))
 
-        # Make containers for outputs
-        all_names = [self.hub_name, *self.spoke_names]
-        tf_arrays = {
-            name: tf.TensorArray(tf.float32, size=max_ticks) for name in all_names
-        }
-
         # Unrolling
         for t in range(max_ticks):
-            hub, spokes = self.cell(
+            y = self.cell(
                 inputs={name: v[:, t] for name, v in inputs.items() if v is not None},
                 last_act_hub=hub,
                 last_act_spokes=spokes,
+                return_internals=return_internals,
             )
 
-            # Write hub and spokes activation to the container
-            tf_arrays[self.hub_name] = tf_arrays[self.hub_name].write(t, hub)
-            for name, spoke in spokes.items():
-                tf_arrays[name] = tf_arrays[name].write(t, spoke)
+            for name, arr in tf_arrays.items():
+                tf_arrays[name] = arr.write(t, y[name])
 
+            # Overwrite hub and spokes for next tick
+            hub = y[self.hub_name]
+            spokes = {name: y[name] for name in self.spoke_names}
+
+        # Clear time-averaging states
         self.cell.reset_states()
 
-        return {name: reshape_proper(tf_arrays[name]) for name in all_names}
+        return {name: reshape_proper(arr) for name, arr in tf_arrays.items()}

@@ -334,8 +334,10 @@ class HubAndSpokes(tf.keras.Model):
             spoke_units=spoke_units,
         )
 
-    def call(self, x: Dict[str, tf.Tensor]) -> Dict[str, tf.Tensor]:
-        return self.hns(x)
+    def call(
+        self, x: Dict[str, tf.Tensor], return_internals: bool = False
+    ) -> Dict[str, tf.Tensor]:
+        return self.hns(x, return_internals=return_internals)
 
     def train_step(self, data: Tuple[Dict[str, tf.Tensor]]) -> Dict[str, tf.Tensor]:
         """Train the model for one step, return losses and metrics."""
