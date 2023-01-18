@@ -1,13 +1,15 @@
 # Connectionist
 
+[![Pypi version](https://img.shields.io/pypi/v/connectionist.svg?style=flat&color=brightgreen)](https://pypi.org/project/connectionist/)
 [![Documentation Status](https://readthedocs.org/projects/connectionist/badge/?version=latest)](https://connectionist.readthedocs.io/en/latest/?badge=latest)
+[![License](https://img.shields.io/github/license/jasonlo/connectionist.svg?color=brightgreen)](https://github.com/JasonLo/connectionist/blob/main/LICENSE)
 
-Tools for classical connectionist models of reading with TensorFlow
+Tools for classical connectionist models of reading with TensorFlow.
 
 ## Requirements
 
-Python 3.8+
-TensorFlow 2.9+
+- Python >=3.8
+- TensorFlow >=2.9
 
 ## Installation
 
@@ -44,4 +46,4 @@ model(data.x_train)
 
 ## Documentation
 
-Documentation is available at <https://connectionist.readthedocs.io/en/latest/>
+- Documentation is available at <https://connectionist.readthedocs.io/en/latest/>
