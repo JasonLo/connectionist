@@ -3,8 +3,9 @@ site_url: https://connectionist.readthedocs.io/en/latest/
 repo_url: https://github.com/JasonLo/connectionist
 site_description: Documentation for connectionist python package
 site_author: Jason Lo
-theme: readthedocs
 copyright: MIT License
+theme: readthedocs
+extra_css: [extra.css]
 plugins:
 - search
 - mkdocstrings:
@@ -12,9 +13,14 @@ plugins:
       python:
         path: [connectionist]
         options:
-          show_root_toc_entry: False
           show_source: false
 markdown_extensions:
 - markdown_katex:
     no_inline_svg: True
     insert_fonts_css: True
+- admonition
+- pymdownx.details
+- pymdownx.superfences
+watch:
+- connectionist
+- docs
