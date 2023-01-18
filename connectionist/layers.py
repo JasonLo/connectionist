@@ -84,6 +84,9 @@ class TimeAveragedDense(tf.keras.layers.Dense):
     layer = TimeAveragedDense(tau=0.1, average_at="after_activation", units=10)
     ```
 
+    !!! note
+        This layer is only useful for single input, for multiple inputs equivalent, see [MultiInputTimeAveraging][connectionist.layers.MultiInputTimeAveraging].
+
     """
 
     def __init__(
@@ -197,7 +200,7 @@ class ZeroOutDense(tf.keras.layers.Dense):
 
 
 class MultiInputTimeAveraging(tf.keras.layers.Layer):
-    """Time-averaging mechanism for multiple inputs.
+    r"""Time-averaging mechanism for multiple inputs.
 
     In short, time-averaging mechanism simulates continuous-temporal dynamics in a discrete-time recurrent neural networks.
     See Plaut, McClelland, Seidenberg, and Patterson (1996) equation (15) for more details.
