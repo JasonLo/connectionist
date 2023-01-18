@@ -10,10 +10,11 @@ plugins:
 - mkdocstrings:
     handlers:
       python:
+        path: [connectionist]
         options:
           show_root_toc_entry: False
           show_source: false
 markdown_extensions:
-  - markdown_katex:
-      no_inline_svg: True
-      insert_fonts_css: True
+- markdown_katex:
+    no_inline_svg: True
+    insert_fonts_css: True
