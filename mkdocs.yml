@@ -9,6 +9,7 @@ copyright: MIT License
 theme:
   name: material
   icon:
+    logo: octicons/share-android-16
     repo: fontawesome/brands/github
   palette:
     - media: "(prefers-color-scheme: dark)"
