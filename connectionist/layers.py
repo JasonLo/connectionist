@@ -718,10 +718,8 @@ class Spoke(tf.keras.layers.Layer):
         """Call the spoke.
 
         Args:
-            inputs: clamped input
-            cross_tick_states: states from the red arrows (cross ticks projection), a_i w_{ij}.
-            return_internals: whether to return the internal states of the spoke.
-
+            inputs (tf.Tensor): clamped inputs to spoke, default to None.
+            cross_tick_states (List[tf.Tensor]): states from cross ticks (t-1) projection, a_i w_{ij}, default to None.
         """
         if isinstance(cross_tick_states, list):
             if len(cross_tick_states) == 0:
