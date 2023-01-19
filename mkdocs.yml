@@ -36,11 +36,11 @@ nav:
 - Layers:
   - TimeAveragedDense: layers/TimeAveragedDense.md
   - MultiInputTimeAveraging: layers/MultiInputTimeAveraging.md
-  - TimeAveragedRNN: layers/TimeAveragedRNN.md
   - TimeAveragedRNNCell: layers/TimeAveragedRNNCell.md
+  - TimeAveragedRNN: layers/TimeAveragedRNN.md
   - PMSPCell: layers/PMSPCell.md
   - PMSPLayer: layers/PMSPLayer.md
-  - Spoke: layers/Spoke.md
+  - HNSSpoke: layers/HNSSpoke.md
   - HNSCell: layers/HNSCell.md
   - HNSLayer: layers/HNSLayer.md
 - Models:
