@@ -1,11 +1,56 @@
 site_name: Connectionist
-site_url: https://connectionist.readthedocs.io/en/latest/
-repo_url: https://github.com/JasonLo/connectionist
 site_description: Documentation for connectionist python package
 site_author: Jason Lo
+site_url: https://connectionist.readthedocs.io/en/latest/
+repo_url: https://github.com/JasonLo/connectionist
+docs_dir: docs
 copyright: MIT License
-theme: readthedocs
+
+theme:
+  name: material
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      accent: lime
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+  features:
+    - navigation.sections
+    - navigation.tabs
+    - navigation.instant
+    - content.code.copy
 extra_css: [extra.css]
+
+nav:
+- Home: index.md
+- Layers:
+  - TimeAveragedDense: layers/TimeAveragedDense.md
+  - MultiInputTimeAveraging: layers/MultiInputTimeAveraging.md
+  - TimeAveragedRNN: layers/TimeAveragedRNN.md
+  - TimeAveragedRNNCell: layers/TimeAveragedRNNCell.md
+  - PMSPCell: layers/PMSPCell.md
+  - PMSPLayer: layers/PMSPLayer.md
+  - Spoke: layers/Spoke.md
+  - HNSCell: layers/HNSCell.md
+  - HNSLayer: layers/HNSLayer.md
+- Models:
+  - HubAndSpokes: models/HubAndSpokes.md
+  - PMSP: models/PMSP.md
+- Others:
+  - MaskedBinaryCrossEntropy: losses/MaskedBinaryCrossEntropy.md
+  - copy_transplant: surgery/copy_transplant.md
+  - SurgeryPlan: surgery/SurgeryPlan.md
+  - Surgeon: surgery/Surgeon.md
+  - make_recipient: surgery/make_recipient.md
+
 plugins:
 - search
 - mkdocstrings:
@@ -21,6 +66,7 @@ markdown_extensions:
 - admonition
 - pymdownx.details
 - pymdownx.superfences
+
 watch:
 - connectionist
 - docs
