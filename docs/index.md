@@ -6,6 +6,45 @@ hide:
 
 # Welcome to Connectionist's documentation
 
-This project is a course companion python library for the course [Contemporary neural networks for cognition and cognitive neuroscience](https://drive.google.com/drive/folders/1ZNmK-W8bk3iIH6M5cYzhO_XGhCrxFXzL).
+[![Github](https://img.shields.io/badge/Docs-Github.io-4051b5)](https://jasonlo.github.io/connectionist/)
+[![Read the Docs](https://img.shields.io/badge/Docs-Read%20the%20Docs-4051b5)](https://connectionist.readthedocs.io/en/latest/)
 
-Source code: [https://github.com/JasonLo/connectionist](https://github.com/JasonLo/connectionist)
+**Connectionist** contains some tools for classical connectionist models of reading with TensorFlow. This project is a course companion python library for the course [Contemporary neural networks for cognition and cognitive neuroscience](https://drive.google.com/drive/folders/1ZNmK-W8bk3iIH6M5cYzhO_XGhCrxFXzL).
+
+## Requirements
+
+- Python >=3.8
+- TensorFlow >=2.9
+
+## Installation
+
+```bash
+pip install connectionist
+```
+
+## Quick start
+
+End-to-end toy example with Plaut, McClelland, Seidenberg and Patterson (1996), simulation 3 model:
+
+```python
+import tensorflow as tf
+from connectionist.data import ToyOP
+from connectionist.models import PMSP
+
+data = ToyOP()
+model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(),
+    loss=tf.keras.losses.BinaryCrossentropy(),
+)
+model.fit(data.x_train, data.y_train, epochs=3, batch_size=20)
+model(data.x_train)
+```
+
+## Modules
+
+- connectionist.data: Includes datasets for connectionist models of reading. Currently only have `ToyOP`, but will add more in the future.
+- connectionist.layers: Includes custom layers for connectionist models of reading in `tf.keras.layers.Layer` format.
+- connectionist.models: Includes ready-to-use connectionist models in `tf.keras.Model` format.
+- connectionist.losses: Includes custom losses functions for connectionist models of reading.
+- connectionist.surgery: Includes helper functions for "brain damage" experiments.

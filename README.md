@@ -36,7 +36,7 @@ model.fit(data.x_train, data.y_train, epochs=3, batch_size=20)
 model(data.x_train)
 ```
 
-## Modules overview
+## Modules
 
 - connectionist.data: Includes datasets for connectionist models of reading. Currently only have `ToyOP`, but will add more in the future.
 - connectionist.layers: Includes custom layers for connectionist models of reading in `tf.keras.layers.Layer` format.
@@ -46,4 +46,5 @@ model(data.x_train)
 
 ## Documentation
 
-- Documentation is available at <https://connectionist.readthedocs.io/en/latest/>
+[![Github](https://img.shields.io/badge/docs-Github.io-4051b5)](https://jasonlo.github.io/connectionist/)
+[![Read the Docs](https://img.shields.io/badge/docs-Read%20the%20Docs-4051b5)](https://connectionist.readthedocs.io/en/latest/)
