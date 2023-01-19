@@ -12,17 +12,18 @@ theme:
     logo: octicons/share-android-16
     repo: fontawesome/brands/github
   palette:
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      accent: lime
-      toggle:
-        icon: material/brightness-4
-        name: Switch to light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
+      primary: blue grey
+      accent: blue grey
       toggle:
-        icon: material/brightness-7
+        icon: material/weather-sunny
         name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
   features:
     - navigation.sections
     - navigation.tabs
