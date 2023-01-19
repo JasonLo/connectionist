@@ -1,0 +1,3 @@
+# HNSLayer
+
+::: connectionist.layers.HNSLayer

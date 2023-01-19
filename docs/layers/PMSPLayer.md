@@ -1,0 +1,3 @@
+# PMSPLayer
+
+::: connectionist.layers.PMSPLayer

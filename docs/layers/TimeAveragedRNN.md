@@ -1,0 +1,3 @@
+# TimeAveragedRNN
+
+::: connectionist.layers.TimeAveragedRNN

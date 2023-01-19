@@ -1,0 +1,3 @@
+# TimeAveragedRNNCell
+
+::: connectionist.layers.TimeAveragedRNNCell

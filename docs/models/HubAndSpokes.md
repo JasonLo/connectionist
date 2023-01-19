@@ -1,0 +1,3 @@
+# HubAndSpokes
+
+::: connectionist.models.HubAndSpokes
