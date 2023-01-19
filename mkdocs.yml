@@ -33,6 +33,9 @@ extra_css: [extra.css]
 
 nav:
 - Home: index.md
+- Models:
+  - PMSP: models/PMSP.md
+  - HubAndSpokes: models/HubAndSpokes.md
 - Layers:
   - TimeAveragedDense: layers/TimeAveragedDense.md
   - MultiInputTimeAveraging: layers/MultiInputTimeAveraging.md
@@ -44,9 +47,6 @@ nav:
   - HNSSpoke: layers/HNSSpoke.md
   - HNSCell: layers/HNSCell.md
   - HNSLayer: layers/HNSLayer.md
-- Models:
-  - HubAndSpokes: models/HubAndSpokes.md
-  - PMSP: models/PMSP.md
 - Others:
   - MaskedBinaryCrossEntropy: losses/MaskedBinaryCrossEntropy.md
   - copy_transplant: surgery/copy_transplant.md
