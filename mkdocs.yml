@@ -36,6 +36,7 @@ nav:
 - Layers:
   - TimeAveragedDense: layers/TimeAveragedDense.md
   - MultiInputTimeAveraging: layers/MultiInputTimeAveraging.md
+  - ZeroOutDense: layers/ZeroOutDense.md
   - TimeAveragedRNNCell: layers/TimeAveragedRNNCell.md
   - TimeAveragedRNN: layers/TimeAveragedRNN.md
   - PMSPCell: layers/PMSPCell.md
