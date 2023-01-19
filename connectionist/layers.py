@@ -6,12 +6,12 @@ import tensorflow as tf
 def _time_averaging(
     x: tf.Tensor, tau: float, states: Optional[tf.Tensor] = None
 ) -> tf.Tensor:
-    r"""Time-averaging mechanism.
+    r"""Core time-averaging mechanism.
 
     Args:
         x (tf.Tensor): Input tensor.
-        tau (float): Time-averaging parameter (How much information should take from the new input). range: [0, 1].
-        states (tf.Tensor, optional): Last states (last activation: a_{t-1} or last integrated input: x_{t-1} = \sum ). Defaults to None.
+        tau (float): Time-averaging parameter, from 0 to 1.
+        states (tf.Tensor, optional): Last states, it can be last activation: a_{t-1} or last integrated input: x_{t-1}.
     """
 
     if states is None:
@@ -21,7 +21,7 @@ def _time_averaging(
 
 
 def reshape_proper(a: tf.TensorArray, perm: List[int] = None) -> tf.TensorArray:
-    """Reshape the TensorArray to the standard output shape of [batch_size, sequence_length, feature].
+    """Reshape the TensorArray to the standard output shape of [batch_size, sequence_length, features].
 
     Args:
         a (tf.TensorArray): TensorArray to be reshaped.
@@ -35,12 +35,19 @@ def reshape_proper(a: tf.TensorArray, perm: List[int] = None) -> tf.TensorArray:
 class TimeAveragedDense(tf.keras.layers.Dense):
     r"""This layer simulates continuous-temporal dynamics with time-averaged input/output.
 
+    !!! note
+        This layer is for single input, i.e., signal comes from one precedent layer.
+        For multiple inputs equivalent, see [MultiInputTimeAveraging][connectionist.layers.MultiInputTimeAveraging].
+
+
     Args:
         tau (float): Time-averaging parameter, from 0 to 1.
         average_at (str): Select where to average, 'before_activation' or 'after_activation'.
         kwargs (str, optional): Any argument in `keras.layers.Dense`.
 
     ### Time-averaged input
+
+    See Plaut, McClelland, Seidenberg, and Patterson (1996) equation (15).
 
     Defines as:
 
@@ -52,16 +59,20 @@ class TimeAveragedDense(tf.keras.layers.Dense):
     ```
 
     - $`a_t`$: activation at time $`t`$
+    - $`act`$: activation function (provided by this layer if `activation` is used)
     - $`s_t`$: state at time $`t`$
-    - $`\tau`$: time constant, smaller means slower temporal dynamics.
+    - $`\tau`$: time constant, smaller means slower temporal dynamics
     - $`x_t`$: input at time $`t`$
     - $`w`$: weight matrix (provided by this layer)
-    - $`b`$: bias vector (provided by this layer)
+    - $`b`$: bias vector, provided by this layer if `use_bias` is `True` (Default)
+    - $`s_{t-1}`$: state at time $`t-1`$, stored in `self.states`
 
     Code example:
 
     ```python
-    layer = TimeAveragedDense(tau=0.1, average_at="before_activation", units=10)
+    layer = TimeAveragedDense(
+        tau=0.1, average_at="before_activation", units=10, activation="sigmoid"
+        )
     ```
 
     ### Time-averaged output
@@ -73,19 +84,20 @@ class TimeAveragedDense(tf.keras.layers.Dense):
     ```
 
     - $`a_t`$: activation at time $`t`$
-    - $`\tau`$: time constant, smaller means slower temporal dynamics.
+    - $`\tau`$: time constant, smaller means slower temporal dynamics
+    - $`act`$: activation function (provided by this layer if `activation` is used)
     - $`x_t`$: input at time $`t`$
     - $`w`$: weight matrix (provided by this layer)
-    - $`b`$: bias vector (provided by this layer)
+    - $`b`$: bias vector, provided by this layer if `use_bias` is `True` (Default)
+    - $`a_{t-1}`$: activation at time $`t-1`$, stored in `self.states`
 
     Code example:
 
     ```python
-    layer = TimeAveragedDense(tau=0.1, average_at="after_activation", units=10)
+    layer = TimeAveragedDense(
+        tau=0.1, average_at="after_activation", units=10, activation="sigmoid"
+        )
     ```
-
-    !!! note
-        This layer is only useful for single input, for multiple inputs equivalent, see [MultiInputTimeAveraging][connectionist.layers.MultiInputTimeAveraging].
 
     """
 
@@ -114,6 +126,14 @@ class TimeAveragedDense(tf.keras.layers.Dense):
         self.states = None
 
     def call(self, inputs: tf.Tensor) -> tf.Tensor:
+        """Forward pass.
+
+        Args:
+            inputs (tf.Tensor): Input tensor $`x_t`$.
+
+        Returns:
+            outputs (tf.Tensor): Output tensor $`a_t`$.
+        """
 
         # keras.layers.Dense.call() without activation
         outputs = super().call(inputs)
@@ -131,6 +151,12 @@ class TimeAveragedDense(tf.keras.layers.Dense):
         return outputs
 
     def reset_states(self) -> None:
+        """Resetting `self.states` to None.
+
+        !!! note
+            This is typically called when RNN unrolling is done, so that the next batch of data can start with a clean state.
+
+        """
         self.states = None
 
     def get_config(self) -> dict:
@@ -200,37 +226,75 @@ class ZeroOutDense(tf.keras.layers.Dense):
 
 
 class MultiInputTimeAveraging(tf.keras.layers.Layer):
-    r"""Time-averaging mechanism for multiple inputs.
+    r"""This layer simulates continuous-temporal dynamics with time-averaged input/output for multiple inputs.
 
-    In short, time-averaging mechanism simulates continuous-temporal dynamics in a discrete-time recurrent neural networks.
-    See Plaut, McClelland, Seidenberg, and Patterson (1996) equation (15) for more details.
-
-    This layer is designed for multiple inputs, assuming they had ALREADY been multiplied by weights i.e., a list of (x @ w).
-    i.e., there is only bias term in this layer (no weights) if use_bias is True.
+    !!! note
+        This layer is for multiple inputs, and assuming they had **ALREADY** been multiplied by weights.
+        i.e., This layer has no weights matrix, but a bias vector if `use_bias` is `True`.
+        For single input equivalent, see [TimeAveragedDense][connectionist.layers.TimeAveragedDense].
 
     Args:
-        tau (float): Time-averaging parameter (How much information should take from the new input). range: [0, 1].
+        tau (float): Time-averaging parameter, from 0 to 1.
+        average_at (str): Select where to average, 'before_activation' or 'after_activation'.
+        activation (str, optional): Activation function to use.
+        use_bias (bool, optional): Whether the layer uses a bias vector.
+        bias_initializer (optional): Initializer for the bias vector.
+        bias_regularizer (optional): Regularizer function applied to the bias vector.
+        bias_constraint (optional): Constraint function applied to the bias vector.
 
-        average_at (str): Where to average. Options: 'before_activation', 'after_activation'.
+    ### Time-averaged input
 
-            When average_at is 'before_activation', the time-averaging is applied BEFORE activation. i.e., time-averaging INPUT.:
-                outputs = activation(integrated_input);
-                integrated input = tau * (sum(inputs) + bias) + (1-tau) * last_integrated_input;
-                last_integrated_input is obtained from the last call of this layer, its values stored at `self.states`
+    See Plaut, McClelland, Seidenberg, and Patterson (1996) equation (15).
 
-            When average_at is 'after_activation', the time-averaging is applied AFTER activation. i.e., time-averaging OUTPUT.:
-                outputs = tau * activation(sum(inputs) + bias) + (1-tau) * last_outputs;
-                last_outputs is obtained from the last call of this layer, its values stored at `self.states`
+    Defines as:
 
-        activation (str, optional): Activation function to use. Defaults to None.
+    ```math
+    a_t = act(s_t)
+    ```
+    ```math
+    s_t = \tau \cdot (\sum_i^n x_{i,t} + b) + (1-\tau) \cdot s_{t-1}
+    ```
 
-        use_bias (bool, optional): Whether the layer uses a bias vector. Defaults to True.
+    - $`a_t`$: activation at time $`t`$
+    - $`act`$: activation function (provided by this layer if `activation` is used)
+    - $`s_t`$: state at time $`t`$
+    - $`\tau`$: time constant, smaller means slower temporal dynamics
+    - $`x_{i,t}`$: input at time $`t`$ coming from input $`i`$
+    - $`n`$: number of input layers
+    - $`b`$: bias vector, provided by this layer if `use_bias` is `True` (Default)
+    - $`s_{t-1}`$: state at time $`t-1`$, stored in `self.states`
 
-        bias_initializer (optional): Initializer for the bias vector. Defaults to 'zeros'.
+    Code example:
 
-        bias_regularizer (optional): Regularizer function applied to the bias vector. Defaults to None.
+    ```python
+    layer = MultiInputTimeAveraging(
+        tau=0.1, average_at="before_activation", activation="sigmoid"
+        )
+    ```
 
-        bias_constraint (optional): Constraint function applied to the bias vector. Defaults to None.
+    ### Time-averaged output
+
+    Defines as:
+
+    ```math
+    a_t = \tau \cdot act(\sum_i^n x_{i,t} + b) + (1-\tau) \cdot a_{t-1}
+    ```
+
+    - $`a_t`$: activation at time $`t`$
+    - $`\tau`$: time constant, smaller means slower temporal dynamics
+    - $`act`$: activation function (provided by this layer if `activation` is used)
+    - $`x_{i,t}`$: input at time $`t`$ coming from input $`i`$
+    - $`b`$: bias vector, provided by this layer if `use_bias` is `True` (Default)
+    - $`a_{t-1}`$: activation at time $`t-1`$, stored in `self.states`
+
+    Code example:
+
+    ```python
+    layer = MultiInputTimeAveraging(
+        tau=0.1, average_at="after_activation", activation="sigmoid"
+        )
+    ```
+
 
     """
 
@@ -694,7 +758,7 @@ class PMSPLayer(tf.keras.layers.Layer):
         return {name: reshape_proper(arr) for name, arr in tf_arrays.items()}
 
 
-class Spoke(tf.keras.layers.Layer):
+class HNSSpoke(tf.keras.layers.Layer):
     """A spoke in the hub-and-spokes model."""
 
     def __init__(
@@ -777,7 +841,7 @@ class HNSCell(tf.keras.layers.Layer):
 
         # Spokes
         for i, (name, units) in enumerate(zip(self.spoke_names, self.spoke_units)):
-            setattr(self, name, Spoke(tau=self.tau, units=units, name=name))
+            setattr(self, name, HNSSpoke(tau=self.tau, units=units, name=name))
 
             # Outgoing connection weights (w_sih)
             setattr(
