@@ -183,7 +183,7 @@ class TimeAveragedDense(tf.keras.layers.Dense):
 
 
 class ZeroOutDense(tf.keras.layers.Dense):
-    """Dense layer with zero-out (weight masking) mechanism.
+    r"""Dense layer with zero-out (weight masking) mechanism.
 
     This masking mechanism includes:
 
