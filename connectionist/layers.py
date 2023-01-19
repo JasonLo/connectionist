@@ -6,7 +6,7 @@ import tensorflow as tf
 def _time_averaging(
     x: tf.Tensor, tau: float, states: Optional[tf.Tensor] = None
 ) -> tf.Tensor:
-    """Time-averaging mechanism.
+    r"""Time-averaging mechanism.
 
     Args:
         x (tf.Tensor): Input tensor.
