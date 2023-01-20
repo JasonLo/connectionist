@@ -736,7 +736,7 @@ class PMSPCell(tf.keras.layers.Layer):
         create_layer = partial(
             MultiInputTimeAveraging,
             tau=self.tau,
-            average_at="after_activation",
+            average_at="before_activation",
             activation="sigmoid",
             bias_regularizer=regularizer,  # Only have bias in MITA layer
         )
