@@ -2,9 +2,10 @@ from pathlib import Path
 
 
 def write_md(module_name: str, class_name: str, docs_root: Path) -> None:
-    """Write documentation markdown files for a class."""
+    """Overwrite documentation markdown files for a class."""
 
     target_path = docs_root / module_name / (class_name + ".md")
+
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.unlink(missing_ok=True)
 
