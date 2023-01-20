@@ -17,6 +17,9 @@ python3 -m build
 # Release to pypi
 python3 -m twine upload dist/*
 
+# Mkdocs and release to github pages
+mkdocs gh-deploy --force
+
 # Commit version bump
 git add connectionist/__about__.py
 git commit -m "bump version to $RELEASE_VERSION"

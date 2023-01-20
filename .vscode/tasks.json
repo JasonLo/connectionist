@@ -18,25 +18,7 @@
             },
         },
         {
-            "label": "Release-PyPI",
-            "type": "shell",
-            "command": "bash",
-            "args": [
-                "./scripts/release.sh",
-                "micro"
-            ],
-            "presentation": {
-                "reveal": "always",
-                "panel": "new"
-            },
-            "options": {
-                "statusbar": {
-                    "label": "$(play-circle) PyPI"
-                }
-            },
-        },
-        {
-            "label": "pub docs",
+            "label": "Make and pub docs",
             "type": "shell",
             "command": "mkdocs",
             "args": [
@@ -50,6 +32,24 @@
             "options": {
                 "statusbar": {
                     "label": "$(book) docs"
+                }
+            },
+        },
+        {
+            "label": "Release",
+            "type": "shell",
+            "command": "bash",
+            "args": [
+                "./scripts/release.sh",
+                "micro"
+            ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "options": {
+                "statusbar": {
+                    "label": "$(play-circle) Release"
                 }
             },
         }
