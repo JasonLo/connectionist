@@ -4,6 +4,20 @@
     "version": "2.0.0",
     "tasks": [
         {
+            "label": "Local build",
+            "type": "shell",
+            "command": "rm -r dist && python3 -m build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "options": {
+                "statusbar": {
+                    "label": "$(beaker) build"
+                }
+            },
+        },
+        {
             "label": "Release-PyPI",
             "type": "shell",
             "command": "bash",
@@ -16,12 +30,12 @@
             },
             "options": {
                 "statusbar": {
-                    "label": "$(play-circle) Release"
+                    "label": "$(play-circle) PyPI"
                 }
             },
         },
         {
-            "label": "gh-pages",
+            "label": "pub docs",
             "type": "shell",
             "command": "mkdocs",
             "args": [
@@ -34,7 +48,7 @@
             },
             "options": {
                 "statusbar": {
-                    "label": "$(play-circle) gh-pages"
+                    "label": "$(book) docs"
                 }
             },
         }
