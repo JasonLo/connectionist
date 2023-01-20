@@ -1334,12 +1334,12 @@ class HNSLayer(tf.keras.layers.Layer):
         The number of time steps is determined by axis 1 in the inputs.
 
         Args:
-            inputs (Dict[str, tf.Tensor], optional): Inputs to the hubs, with hub name as key. Assumes input is 0 if not given.
-            return_internals (bool, optional): Whether to return the internal connections.
+            inputs (Dict[str, tf.Tensor], optional): Inputs to the spokes (name as key). Assumes input is 0 if not given.
+            return_internals (bool): Whether to return intermediate inputs to each connection.
 
         Returns:
             Dict[str, tf.Tensor]: Activations of the hub and spokes, with layer names as keys.
-                If `return_internals` is True, also returns the internal connections.
+                If `return_internals` is True, also returns intermediate inputs to each connection.
 
         """
 
