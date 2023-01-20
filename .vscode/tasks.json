@@ -22,7 +22,8 @@
             "type": "shell",
             "command": "bash",
             "args": [
-                "./scripts/release.sh"
+                "./scripts/release.sh",
+                "micro"
             ],
             "presentation": {
                 "reveal": "always",
