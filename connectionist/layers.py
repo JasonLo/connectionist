@@ -6,12 +6,12 @@ import tensorflow as tf
 def _time_averaging(
     x: tf.Tensor, tau: float, states: Optional[tf.Tensor] = None
 ) -> tf.Tensor:
-    """Time-averaging mechanism.
+    r"""Core time-averaging mechanism.
 
     Args:
         x (tf.Tensor): Input tensor.
-        tau (float): Time-averaging parameter (How much information should take from the new input). range: [0, 1].
-        states (tf.Tensor, optional): Last states (last activation: a_{t-1} or last integrated input: x_{t-1} = \sum ). Defaults to None.
+        tau (float): Time-averaging parameter, from 0 to 1.
+        states (tf.Tensor, optional): Last states, it can be last activation: a_{t-1} or last integrated input: x_{t-1}.
     """
 
     if states is None:
@@ -21,7 +21,7 @@ def _time_averaging(
 
 
 def reshape_proper(a: tf.TensorArray, perm: List[int] = None) -> tf.TensorArray:
-    """Reshape the TensorArray to the standard output shape of [batch_size, sequence_length, feature].
+    """Reshape the TensorArray to the standard output shape of [batch_size, sequence_length, features].
 
     Args:
         a (tf.TensorArray): TensorArray to be reshaped.
@@ -33,27 +33,75 @@ def reshape_proper(a: tf.TensorArray, perm: List[int] = None) -> tf.TensorArray:
 
 
 class TimeAveragedDense(tf.keras.layers.Dense):
-    """Dense layer with Time-averaging mechanism.
+    r"""This layer simulates continuous-temporal dynamics with time-averaged input/output.
 
-    In short, time-averaging mechanism simulates continuous-temporal dynamics in a discrete-time recurrent neural networks.
-    See Plaut, McClelland, Seidenberg, and Patterson (1996) equation (15) for more details.
+    !!! note
+        This layer is for single input, i.e., signal comes from one precedent layer.
+        For multiple inputs equivalent, see [MultiInputTimeAveraging][connectionist.layers.MultiInputTimeAveraging].
+
 
     Args:
-        tau (float): Time-averaging parameter (How much information should take from the new input). range: [0, 1].
+        tau (float): Time-averaging parameter, from 0 to 1.
+        average_at (str): Select where to average, 'before_activation' or 'after_activation'.
+        kwargs (dict, optional): Any argument in `keras.layers.Dense`.
 
-        average_at (str): Where to average. Options: 'before_activation', 'after_activation'.
+    ### Time-averaged input
 
-            When average_at is 'before_activation', the time-averaging is applied BEFORE activation. i.e., time-averaging INPUT.:
-                outputs = activation(integrated_input);
-                integrated input = tau * (inputs @ weights + bias) + (1-tau) * last_integrated_input;
-                last_integrated_input is obtained from the last call of this layer, its values stored at `self.states`
+    See Plaut, McClelland, Seidenberg, and Patterson (1996) equation (15).
 
-            When average_at is 'after_activation', the time-averaging is applied AFTER activation. i.e., time-averaging OUTPUT.:
-                outputs = tau * activation(inputs @ weights + bias) + (1-tau) * last_outputs;
-                last_outputs is obtained from the last call of this layer, its values stored at `self.states`
+    Defines as:
 
-        kwargs (str, optional): Any argument in keras.layers.Dense. (e.g., units, activation, use_bias, kernel_initializer, bias_initializer,
-            kernel_regularizer, bias_regularizer, activity_regularizer, kernel_constraint, bias_constraint, **kwargs).
+    ```math
+    a_t = act(s_t)
+    ```
+    ```math
+    s_t = \tau \cdot (x_t w + b) + (1-\tau) \cdot s_{t-1}
+    ```
+
+    !!! warning
+        "$`\cdot`$" is element-wise multiplication.
+
+    - $`a_t`$: activation at time $`t`$.
+    - $`act`$: activation function (provided by this layer if `activation` is used).
+    - $`s_t`$: state at time $`t`$.
+    - $`\tau`$: time constant, smaller means slower temporal dynamics.
+    - $`x_t`$: input at time $`t`$.
+    - $`w`$: weight matrix (provided by this layer).
+    - $`b`$: bias vector, provided by this layer if `use_bias` is `True` (Default).
+    - $`s_{t-1}`$: state at time $`t-1`$, stored in `self.states`.
+
+    !!! Example
+        ```python
+        layer = TimeAveragedDense(
+            tau=0.1, average_at="before_activation", units=10, activation="sigmoid"
+            )
+        ```
+
+    ### Time-averaged output
+
+    Defines as:
+
+    ```math
+    a_t = \tau \cdot act(x_t w + b) + (1-\tau) \cdot a_{t-1}
+    ```
+
+    !!! warning
+        "$`\cdot`$" is element-wise multiplication.
+
+    - $`a_t`$: activation at time $`t`$.
+    - $`\tau`$: time constant, smaller means slower temporal dynamics.
+    - $`act`$: activation function (provided by this layer if `activation` is used).
+    - $`x_t`$: input at time $`t`$.
+    - $`w`$: weight matrix (provided by this layer).
+    - $`b`$: bias vector, provided by this layer if `use_bias` is `True` (Default).
+    - $`a_{t-1}`$: activation at time $`t-1`$, stored in `self.states`.
+
+    !!! example
+        ```python
+        layer = TimeAveragedDense(
+            tau=0.1, average_at="after_activation", units=10, activation="sigmoid"
+            )
+        ```
 
     """
 
@@ -82,6 +130,18 @@ class TimeAveragedDense(tf.keras.layers.Dense):
         self.states = None
 
     def call(self, inputs: tf.Tensor) -> tf.Tensor:
+        """Forward pass.
+
+        !!! note
+            This function reused `keras.layers.Dense.call()` without activation.
+            Time-averaging and activation are manually implemented here.
+
+        Args:
+            inputs (tf.Tensor): Input tensor $`x_t`$.
+
+        Returns:
+            outputs (tf.Tensor): Output tensor $`a_t`$.
+        """
 
         # keras.layers.Dense.call() without activation
         outputs = super().call(inputs)
@@ -99,6 +159,13 @@ class TimeAveragedDense(tf.keras.layers.Dense):
         return outputs
 
     def reset_states(self) -> None:
+        """Resetting `self.states` to None.
+
+        !!! note
+            This is typically called when RNN unrolling is done,
+            so that the next batch of data can start with a clean state.
+
+        """
         self.states = None
 
     def get_config(self) -> dict:
@@ -114,19 +181,60 @@ class TimeAveragedDense(tf.keras.layers.Dense):
 
 
 class ZeroOutDense(tf.keras.layers.Dense):
-    """Dense layer with zero-out (weight masking) mechanism."""
+    r"""Dense layer with zero-out (weight masking) mechanism.
 
-    def __init__(self, zero_out_rate: float, **kwargs) -> None:
-        super().__init__(**kwargs)
+    This masking mechanism includes:
+
+    1. Create an non-trainable persistent mask shapes like the weight matrix.
+    2. During `build`, assign 0 values to weight matrix.
+    3. During forward pass `call`, element-wise multiply the weight matrix with the mask matrix
+        to block the gradient from back-propagating to the weight matrix.
+        Hence, the masked weights are technical not trainable.
+
+    !!! note
+        Why (3) blocks the gradient in the masked weight? Consider the forward-pass of $`masked = w \cdot m`$,
+        its backward pass is $`d_w = m \cdot d_{masked}`$, therefore if $`m`$ is 0, $`d_w`$ is 0,
+        hence the gradient of weight is 0 when its mask's value is 0.
+
+    Args:
+        zero_out_rate (float): Probability of a weight begin masked.
+        units (int): Number of units in the layer.
+        activation (str, optional): Activation function to use.
+        use_bias (bool, optional): Whether the layer uses a bias vector.
+        kwargs (dict, optional): Any Keyword arguments in `tf.keras.layers.Dense`.
+
+    Forward pass:
+    ```math
+    y = x(w \cdot m) + b
+    ```
+
+    !!! warning
+        "$`\cdot`$" is element-wise multiplication.
+
+    - $`x`$: input tensor.
+    - $`w`$: weight matrix provided by this layer, trainable.
+    - $`m`$: mask matrix, provided by this layer, **NOT** trainable.
+    - $`b`$: bias vector, provided by this layer if `use_bias` is `True` (Default), trainable.
+
+    """
+
+    def __init__(
+        self, zero_out_rate: float, units: int, activation=None, use_bias=True, **kwargs
+    ) -> None:
+        super().__init__(
+            units=units, activation=activation, use_bias=use_bias, **kwargs
+        )
         self.zero_out_rate = zero_out_rate
 
     def build(self, input_shape: tf.TensorShape) -> None:
+        """Build the layer."""
+
         super().build(input_shape)
 
         # Create a mask to zero-out the weights.
         self.zero_out_mask = tf.Variable(
             tf.ones(self.kernel.shape),
-            trainable=False,
+            trainable=False,  # Mask is not trainable and persistent.
             dtype=tf.float32,
             name="zero_out_mask",
         )
@@ -140,16 +248,26 @@ class ZeroOutDense(tf.keras.layers.Dense):
         )
 
         # Also zero-out the initialized values.
-        self.kernel.assign(self.kernel * self.zero_out_mask)
+        self.zero_out_weights()
 
     def zero_out_weights(self) -> None:
-        """Manually zero-out the weights."""
+        """Manually assign zero values to the all weights using the mask."""
+
         self.kernel.assign(self.kernel * self.zero_out_mask)
 
-    def call(self, inputs):
+    def call(self, inputs: tf.Tensor) -> tf.Tensor:
+        r"""Forward pass.
+
+        Args:
+            inputs (tf.Tensor): Input tensor.
+
+        Returns:
+            outputs (tf.Tensor): Output tensor.
+
+        """
 
         # Masked kernel is require to makes masked weight's gradient zero during back-propagation.
-        # Because: d_kernel = zero_out_mask * d_masked_kernel
+        # Because:
         masked_kernel = self.kernel * self.zero_out_mask
         outputs = inputs @ masked_kernel
 
@@ -168,37 +286,79 @@ class ZeroOutDense(tf.keras.layers.Dense):
 
 
 class MultiInputTimeAveraging(tf.keras.layers.Layer):
-    """Time-averaging mechanism for multiple inputs.
+    r"""This layer simulates continuous-temporal dynamics with time-averaged input/output for multiple inputs.
 
-    In short, time-averaging mechanism simulates continuous-temporal dynamics in a discrete-time recurrent neural networks.
-    See Plaut, McClelland, Seidenberg, and Patterson (1996) equation (15) for more details.
-
-    This layer is designed for multiple inputs, assuming they had ALREADY been multiplied by weights i.e., a list of (x @ w).
-    i.e., there is only bias term in this layer (no weights) if use_bias is True.
+    !!! note
+        This layer is for multiple inputs, and assuming they had **ALREADY** been multiplied by weights.
+        i.e., This layer has no weights matrix, but a bias vector if `use_bias` is `True`.
+        For single input equivalent, see [TimeAveragedDense][connectionist.layers.TimeAveragedDense].
 
     Args:
-        tau (float): Time-averaging parameter (How much information should take from the new input). range: [0, 1].
+        tau (float): Time-averaging parameter, from 0 to 1.
+        average_at (str): Select where to average, 'before_activation' or 'after_activation'.
+        activation (str, optional): Activation function to use.
+        use_bias (bool, optional): Whether the layer uses a bias vector.
+        bias_initializer (optional): Initializer for the bias vector.
+        bias_regularizer (optional): Regularizer function applied to the bias vector.
+        bias_constraint (optional): Constraint function applied to the bias vector.
 
-        average_at (str): Where to average. Options: 'before_activation', 'after_activation'.
+    ### Time-averaged input
 
-            When average_at is 'before_activation', the time-averaging is applied BEFORE activation. i.e., time-averaging INPUT.:
-                outputs = activation(integrated_input);
-                integrated input = tau * (sum(inputs) + bias) + (1-tau) * last_integrated_input;
-                last_integrated_input is obtained from the last call of this layer, its values stored at `self.states`
+    See Plaut, McClelland, Seidenberg, and Patterson (1996) equation (15).
 
-            When average_at is 'after_activation', the time-averaging is applied AFTER activation. i.e., time-averaging OUTPUT.:
-                outputs = tau * activation(sum(inputs) + bias) + (1-tau) * last_outputs;
-                last_outputs is obtained from the last call of this layer, its values stored at `self.states`
+    Defines as:
 
-        activation (str, optional): Activation function to use. Defaults to None.
+    ```math
+    a_t = act(s_t)
+    ```
+    ```math
+    s_t = \tau \cdot (\sum_i^n x_{i,t} + b) + (1-\tau) \cdot s_{t-1}
+    ```
 
-        use_bias (bool, optional): Whether the layer uses a bias vector. Defaults to True.
+    !!! warning
+        "$`\cdot`$" is element-wise multiplication.
 
-        bias_initializer (optional): Initializer for the bias vector. Defaults to 'zeros'.
+    - $`a_t`$: activation at time $`t`$.
+    - $`act`$: activation function (provided by this layer if `activation` is used).
+    - $`s_t`$: state at time $`t`$.
+    - $`\tau`$: time constant, smaller means slower temporal dynamics.
+    - $`x_{i,t}`$: input at time $`t`$ coming from input $`i`$.
+    - $`n`$: number of input layers.
+    - $`b`$: bias vector, provided by this layer if `use_bias` is `True` (Default).
+    - $`s_{t-1}`$: state at time $`t-1`$, stored in `self.states`.
 
-        bias_regularizer (optional): Regularizer function applied to the bias vector. Defaults to None.
+    !!! example
+        ```python
+        layer = MultiInputTimeAveraging(
+            tau=0.1, average_at="before_activation", activation="sigmoid"
+            )
+        ```
 
-        bias_constraint (optional): Constraint function applied to the bias vector. Defaults to None.
+    ### Time-averaged output
+
+    Defines as:
+
+    ```math
+    a_t = \tau \cdot act(\sum_i^n x_{i,t} + b) + (1-\tau) \cdot a_{t-1}
+    ```
+
+    !!! warning
+        "$`\cdot`$" is element-wise multiplication.
+
+    - $`a_t`$: activation at time $`t`$
+    - $`\tau`$: time constant, smaller means slower temporal dynamics
+    - $`act`$: activation function (provided by this layer if `activation` is used)
+    - $`x_{i,t}`$: input at time $`t`$ coming from input $`i`$
+    - $`b`$: bias vector, provided by this layer if `use_bias` is `True` (Default)
+    - $`a_{t-1}`$: activation at time $`t-1`$, stored in `self.states`
+
+    !!! example
+        ```python
+        layer = MultiInputTimeAveraging(
+            tau=0.1, average_at="after_activation", activation="sigmoid"
+            )
+        ```
+
 
     """
 
@@ -232,7 +392,8 @@ class MultiInputTimeAveraging(tf.keras.layers.Layer):
 
         self.states = None
 
-    def build(self, input_shape) -> None:
+    def build(self, input_shape: tf.TensorShape) -> None:
+        """Build the underlying layers/weights."""
 
         self.sum = tf.keras.layers.Add()
 
@@ -253,6 +414,14 @@ class MultiInputTimeAveraging(tf.keras.layers.Layer):
         self.built = True
 
     def call(self, inputs: List[tf.Tensor]) -> tf.Tensor:
+        """Forward pass.
+
+        Args:
+            inputs (List[tf.Tensor]): List of input tensors $`x_{i,t}`$.
+
+        Returns:
+            outputs (tf.Tensor): Output tensor $`a_t`$.
+        """
 
         # Check if all inputs have the same shape
         if not all([x.shape == inputs[0].shape for x in inputs]):
@@ -280,6 +449,11 @@ class MultiInputTimeAveraging(tf.keras.layers.Layer):
         return outputs
 
     def reset_states(self) -> None:
+        """Resetting `self.states` to None.
+
+        !!! note
+            This is typically called when RNN unrolling is done, so that the next batch of data can start with a clean state.
+        """
         self.states = None
 
     def get_config(self) -> dict:
@@ -288,7 +462,6 @@ class MultiInputTimeAveraging(tf.keras.layers.Layer):
             {
                 "tau": self.tau,
                 "average_at": self.average_at,
-                "units": self.units,
                 "activation": tf.keras.activations.serialize(self.activation),
                 "use_bias": self.use_bias,
                 "bias_initializer": tf.keras.initializers.serialize(
@@ -304,12 +477,44 @@ class MultiInputTimeAveraging(tf.keras.layers.Layer):
 
 
 class TimeAveragedRNNCell(tf.keras.layers.Layer):
+    r"""A simple RNN cell with time-averaging output. It defines one step of compute in an RNN.
+
+    !!! note
+        This layer serves as an example of how to use `MultiInputTimeAveraging` in a custom RNN cell.
+
+    Args:
+        tau (float): Time-averaging parameter, from 0 to 1.
+        units (int): Number of units in the RNN cell.
+
+    ### Forward pass
+
+    ```math
+    h_t = \tau \cdot \sigma(h_{t-1} w_{hh} + x_t w_{xh} + b) + (1 - \tau) \cdot h_{t-1}
+    ```
+
+    !!! warning
+        "$`\cdot`$" is element-wise multiplication.
+
+    - $`h_t`$ is the output (also equal to hidden state) at time $`t`$.
+    - $`x_t`$ is the input at time $`t`$.
+    - $`\sigma`$ is the sigmoid activation function.
+    - $`w_{xh}`$ is the weight matrix from input to hidden state.
+    - $`w_{hh}`$ is the weight matrix from hidden state to hidden state.
+    - $`b`$ is the bias vector.
+    - $`\tau`$: time constant, smaller means slower temporal dynamics.
+
+
+
+    """
+
     def __init__(self, tau: float, units: int) -> None:
         super().__init__()
         self.tau = tau
         self.units = units
 
     def build(self, input_shape: tf.TensorShape) -> None:
+        """Build the underlying layers/weights."""
+
         self.input_dense = tf.keras.layers.Dense(self.units, use_bias=False)  # w_xh
         self.recurrent_dense = tf.keras.layers.Dense(self.units, use_bias=False)  # w_hh
         self.time_averaging = MultiInputTimeAveraging(
@@ -318,6 +523,17 @@ class TimeAveragedRNNCell(tf.keras.layers.Layer):
         self.built = True
 
     def call(self, inputs: tf.Tensor, states=None) -> Tuple[tf.Tensor, tf.Tensor]:
+        """Forward pass.
+
+        Args:
+            inputs (tf.Tensor): Input tensor $`x_t`$ with shape (batch_size, input_dim).
+            states (tf.Tensor): Hidden state tensor $`h_{t-1}`$ with shape (batch_size, units).
+
+        Returns:
+            states (tf.Tensor): Hidden state tensor $`h_t`$.
+            outputs (tf.Tensor): Output tensor $`h_t`$. This is the same as the states.
+
+        """
         xh = self.input_dense(inputs)  # x @ w_xh
 
         if states is None:
@@ -334,20 +550,54 @@ class TimeAveragedRNNCell(tf.keras.layers.Layer):
         )  # Consistent with the RNN API, one for state and one for output
 
     def reset_states(self) -> None:
-        self.time_averaging.reset_states()  # Reset the states of the time-averaging mechanism (last activation = None)
+        r"""Resetting the time-averaging state to None
+
+        !!! note
+            This time-averaging state $`h_{t-1}`$ is handled inside the `MultiInputTimeAveraging` layer,
+            which taking care of the 2nd part of the forward pass:
+            $`(1 - \tau) \cdot h_{t-1}`$.
+
+            Even though the first part of the forward pass:
+            $`\tau \cdot \sigma(h_{t-1} w_{hh} + x_t w_{xh} + b)`$ is using the same $`h_{t-1}`$ values,
+            it is handled explicitly in the `call` method, so we don't need to reset it here.
+        """
+
+        self.time_averaging.reset_states()
 
 
 class TimeAveragedRNN(tf.keras.layers.Layer):
+    """A simple RNN with time-averaging output.
+
+    !!! note
+        This layer unrolls [TimeAveragedRNNCell][connectionist.layers.TimeAveragedRNNCell] for a fixed number of steps.
+        The number of steps is determined by "sequence length" in axis 1 of input tensor's shape.
+
+    Args:
+        tau (float): Time-averaging parameter, from 0 to 1.
+        units (int): Number of units in the RNN cell.
+    """
+
     def __init__(self, tau: float, units: int) -> None:
         super().__init__()
         self.tau = tau
         self.units = units
 
     def build(self, input_shape: tf.TensorShape) -> None:
+        """Build the underlying layers/weights."""
+
         self.rnn_cell = TimeAveragedRNNCell(tau=self.tau, units=self.units)
         self.built = True
 
     def call(self, inputs: tf.Tensor) -> tf.Tensor:
+        """Forward pass.
+
+        Args:
+            inputs (tf.Tensor): Input tensor $`x_t`$ with shape (batch_size, seq_len, input_dim).
+
+        Returns:
+            outputs (tf.Tensor): Output tensor $`h_t`$ with shape (batch_size, seq_len, units).
+
+        """
         max_ticks = inputs.shape[1]  # (batch_size, seq_len, input_dim)
         outputs = tf.TensorArray(dtype=tf.float32, size=max_ticks)
         states = None
@@ -363,9 +613,22 @@ class TimeAveragedRNN(tf.keras.layers.Layer):
 
 
 class PMSPCell(tf.keras.layers.Layer):
-    """RNN cell for PMSP model.
+    r"""RNN cell for PMSP model.
 
-    See Plaut, McClelland, Seidenberg and Patterson (1996), simulation 3.
+    See [Plaut, McClelland, Seidenberg and Patterson (1996)](https://www.cnbc.cmu.edu/~plaut/papers/abstracts/PlautETAL96PsyRev.wordReading.html), simulation 3.
+
+    Args:
+        tau (float): Time-averaging parameter, from 0 to 1.
+        h_units (int): Number of units in the hidden layer.
+        p_units (int): Number of units in the phonological layer.
+        c_units (int): Number of units in the cleanup layer.
+        h_noise (float): Gaussian noise parameter (in stddev) for hidden layer.
+        p_noise (float): Gaussian noise parameter (in stddev) for phonological layer.
+        c_noise (float): Gaussian noise parameter (in stddev) for cleanup layer.
+        connections (List[str]): List of connections to use, each connection consists of two letters (from, to). Default is ["oh", "ph", "hp", "pp", "cp", "pc"].
+        zero_out_rates (Dict[str, float]): Dictionary of zero-out rates for each connection. Default is `{c: 0.0 for c in self.connections}`. See [PMSP][connectionist.models.PMSP] for more details.
+        l2 (float): L2 regularization parameter, apply to all trainable weights and biases.
+
     """
 
     def __init__(
@@ -410,16 +673,14 @@ class PMSPCell(tf.keras.layers.Layer):
 
     @property
     def all_layers_names(self) -> List[str]:
-        return [
-            "hidden",
-            "phonology",
-            "cleanup",
-        ]  # Prefixes ('h', 'p', 'c') must be unique
+        """List of all layer full names."""
+
+        # Prefixes ('h', 'p', 'c') must be unique
+        return ["hidden", "phonology", "cleanup"]
 
     @staticmethod
     def _validate_connections(connections) -> None:
         s = set([letter for connection in connections for letter in connection])
-
         if not s.issubset(set("ohpc")):
             raise ValueError(
                 "Connections must contain only letters in ['o', 'h', 'p', 'c']"
@@ -431,6 +692,14 @@ class PMSPCell(tf.keras.layers.Layer):
             raise ValueError("Noise must be > 0")
 
     def get_connection_units(self, connection: str) -> int:
+        """Get number of output units for a given connection.
+
+        Args:
+            connection (str): Connection string, select from `self.connections`.
+
+        Returns:
+            units (int): Number of output units.
+        """
 
         self._validate_connections([connection])
         target = connection[-1]
@@ -441,6 +710,7 @@ class PMSPCell(tf.keras.layers.Layer):
         }[target]
 
     def build(self, input_shape: tf.TensorShape) -> None:
+        """Build the layer."""
 
         regularizer = tf.keras.regularizers.L2(self.l2)
 
@@ -462,7 +732,7 @@ class PMSPCell(tf.keras.layers.Layer):
         create_layer = partial(
             MultiInputTimeAveraging,
             tau=self.tau,
-            average_at="after_activation",
+            average_at="before_activation",
             activation="sigmoid",
             bias_regularizer=regularizer,  # Only have bias in MITA layer
         )
@@ -483,9 +753,21 @@ class PMSPCell(tf.keras.layers.Layer):
         self.built = True
 
     def get_connections(self, layer: str) -> List[str]:
-        """Get connections that end with the given layer.
+        """Get connections that end with a given layer.
 
-        e.g., if layer = "hidden", return all connections that ends with "h", e.g.: ["oh", "ph"]
+        Args:
+            layer (str): Layer name, select from `self.all_layers_names`.
+
+        Returns:
+            connections (List[str]): List of connections that end with the given layer.
+
+        !!! example
+            if `layer = "hidden"`, return all connections that ends with "h", e.g.: `["oh", "ph"]`
+
+            ```python
+            cell.get_connections("hidden")
+            >>> ["oh", "ph"]
+            ```
         """
         return [conn for conn in self.connections if conn.endswith(layer[0])]
 
@@ -502,6 +784,20 @@ class PMSPCell(tf.keras.layers.Layer):
         training: bool = False,
         return_internals: bool = False,
     ) -> Dict[str, tf.Tensor]:
+        """Forward pass.
+
+        Args:
+            last_o (tf.Tensor): Orthographic inputs from previous timestep, shape: (batch_size, input_units).
+            last_h (tf.Tensor): Hidden layer activations from previous timestep, shape: (batch_size, h_units).
+            last_p (tf.Tensor): Phonology layer activations from previous timestep, shape: (batch_size, p_units).
+            last_c (tf.Tensor): Cleanup layer activations from previous timestep, shape: (batch_size, c_units).
+            training (bool): Whether in training mode.
+            return_internals (bool): Whether to return intermediate inputs to each connection.
+
+        Returns:
+            outputs (Dict[str, tf.Tensor]): Activations in each layer `{"phonology": ...}`, if `return_internals=True`, also return intermediate inputs in each connection. E.g., `{"oh": last_o @ w_{oh}, ...}`
+        """
+
         def get_input(connection) -> tf.Tensor:
             input_map = {
                 "o": last_o,
@@ -548,22 +844,42 @@ class PMSPCell(tf.keras.layers.Layer):
         return layer_activations
 
     def reset_states(self):
-        """Reset time averaging history."""
+        """Reset all time-averaging states."""
 
         for layer in self.all_layers_names:
             getattr(self, layer).reset_states()
 
     def zero_out_weights(self):
-        """Zero out weights of all layers."""
+        """Assign zero values to weights by its masks in all connections.
+
+        See [ZeroOutDense][connectionist.layers.ZeroOutDense] for more details.
+        """
 
         for conn in self.connections:
             getattr(self, conn).zero_out_weights()
 
 
 class PMSPLayer(tf.keras.layers.Layer):
-    """PMSP sim 3 model's layer.
+    """PMSP sim 3 model RNN layer.
 
-    See Plaut, McClelland, Seidenberg and Patterson (1996), simulation 3.
+    Unrolling the [PMSPCell][connectionist.layers.PMSPCell] for a fixed number of time steps.
+
+    See [Plaut, McClelland, Seidenberg and Patterson (1996)](https://www.cnbc.cmu.edu/~plaut/papers/abstracts/PlautETAL96PsyRev.wordReading.html), simulation 3.
+
+    Args:
+        tau (float): Time-averaging parameter, from 0 to 1.
+        h_units (int): Number of units in the hidden layer.
+        p_units (int): Number of units in the phonological layer.
+        c_units (int): Number of units in the cleanup layer.
+        h_noise (float): Gaussian noise parameter (in stddev) for hidden layer.
+        p_noise (float): Gaussian noise parameter (in stddev) for phonological layer.
+        c_noise (float): Gaussian noise parameter (in stddev) for cleanup layer.
+        connections (List[str]): List of connections to use, each connection consists of two letters (from, to). Default is ["oh", "ph", "hp", "pp", "cp", "pc"].
+        zero_out_rates (Dict[str, float]): Dictionary of zero-out rates for each connection. Default is `{c: 0.0 for c in self.connections}`. See [PMSP][connectionist.models.PMSP] for more details.
+        l2 (float): L2 regularization parameter, apply to all trainable weights and biases.
+
+
+
     """
 
     def __init__(
@@ -590,6 +906,8 @@ class PMSPLayer(tf.keras.layers.Layer):
         self.l2 = l2
 
     def build(self, input_shape: tf.TensorShape) -> None:
+        """Build the layers."""
+
         self.cell = PMSPCell(
             tau=self.tau,
             h_units=self.h_units,
@@ -614,7 +932,20 @@ class PMSPLayer(tf.keras.layers.Layer):
         inputs: tf.Tensor,
         training: bool = False,
         return_internals: bool = False,
-    ) -> Union[tf.Tensor, Dict[str, tf.Tensor]]:
+    ) -> Dict[str, tf.Tensor]:
+        """Forward pass, unrolling the RNN cell.
+
+        Args:
+            inputs (tf.Tensor): Input tensor with shape (batch_size, max_ticks, input_units).
+            training (bool): Whether to run in training mode or not.
+            return_internals (bool): Whether to return intermediate inputs to each connection.
+
+        Returns:
+            outputs (Dict[str, tf.Tensor]): Activations with shape (batch_size, max_ticks, units) in each layer.
+                E.g.: `{"phonology": ...}`, if `return_internals=True`, also return intermediate inputs
+                with shape (batch_size, max_ticks, units) in each connection. E.g., `{"oh": last_o @ w_{oh}, ...}`
+
+        """
 
         batch_size, max_ticks, _ = inputs.shape
 
@@ -662,40 +993,75 @@ class PMSPLayer(tf.keras.layers.Layer):
         return {name: reshape_proper(arr) for name, arr in tf_arrays.items()}
 
 
-class Spoke(tf.keras.layers.Layer):
-    """A spoke in the hub-and-spokes model."""
+class HNSSpoke(tf.keras.layers.Layer):
+    r"""A spoke in the hub-and-spokes model with time-averaging output.
+
+    This layer is a thin wrapper around [MultiInputTimeAveraging][connectionist.layers.MultiInputTimeAveraging],
+    The differences are:
+
+    1. Catering for `None` input by explicitly defining `units`.
+    2. For clarity, in `call()`, separating the original list of inputs into the clamped input: `inputs` and last states: `last_states`.
+
+    Args:
+        tau (float): Time-averaging parameter, from 0 to 1.
+        units (int): Number of units in the layer. Explicitly set the input dimension to cater for `None` input.
+        activation (str, optional): Activation function to use.
+        use_bias (bool, optional): Whether the layer uses a bias vector.
+        kwargs (dict, optional): Additional keyword arguments passed to [MultiInputTimeAveraging][connectionist.layers.MultiInputTimeAveraging].
+
+    Forward pass:
+
+    ```math
+    a_t = \tau \cdot act(x_t + \sum_i^n s_{i, t-1} + b) + (1-\tau) \cdot a_{t-1}
+    ```
+
+    !!! warning
+        "$`\cdot`$" is element-wise multiplication.
+
+    - $`a_t`$: activation at time $`t`$.
+    - $`\tau`$: time constant, smaller means slower temporal dynamics.
+    - $`act`$: activation function (provided by this layer if `activation` is used).
+    - $`x_{t}`$: input at time $`t`$ coming from input $`i`$.
+    - $`s_{i, t-1}`$: last state from $`i`$ at time $`t-1`$.
+    - $`n`$: number of cross-tick state layers.
+    - $`b`$: bias vector, provided by this layer if `use_bias` is `True` (Default).
+    - $`a_{t-1}`$: time-averaging state at time $`t-1`$, stored in `self.time_averaging.states`.
+
+    """
 
     def __init__(
         self,
         tau: float,
         units: int,
-        average_at="after_activation",
-        activation="sigmoid",
+        activation: str = "sigmoid",
+        use_bias: bool = True,
         **kwargs,
     ) -> None:
         super().__init__()
         self.tau = tau
-        self.units = units  # Begin explicit to cater for `None` input (which is possible in the hub-and-spokes model)
+        self.units = units
         self.time_averaging = MultiInputTimeAveraging(
-            tau=self.tau, average_at=average_at, activation=activation, **kwargs
+            tau=self.tau,
+            average_at="after_activation",
+            activation=activation,
+            use_bias=use_bias,
+            **kwargs,
         )
 
     def call(
-        self, inputs: tf.Tensor = None, cross_tick_states: List[tf.Tensor] = None
-    ) -> tf.Tensor:  # to avoid confusing with `self.time_averaging.states` (a_{t-1}), I use a new name `cross_tick_states` here to represent the cross ticks connection.
-        """Call the spoke.
+        self, inputs: tf.Tensor = None, last_states: List[tf.Tensor] = None
+    ) -> tf.Tensor:
+        """Forward pass.
 
         Args:
-            inputs: clamped input
-            cross_tick_states: states from the red arrows (cross ticks projection), a_i w_{ij}.
-            return_internals: whether to return the internal states of the spoke.
-
+            inputs (tf.Tensor): clamped inputs to spoke.
+            last_states (List[tf.Tensor]): list of states from last ticks projection: $`s_{i, t-1}`$.
         """
-        if isinstance(cross_tick_states, list):
-            if len(cross_tick_states) == 0:
-                cross_tick_states = None
+        if isinstance(last_states, list):
+            if len(last_states) == 0:
+                last_states = None
 
-        if inputs is None and cross_tick_states is None:
+        if inputs is None and last_states is None:
             return self.time_averaging([tf.zeros((1, self.units))])
 
         net_inputs = []
@@ -703,16 +1069,32 @@ class Spoke(tf.keras.layers.Layer):
         if inputs is not None:
             net_inputs.append(inputs)
 
-        if cross_tick_states is not None:
-            net_inputs.extend(cross_tick_states)
+        if last_states is not None:
+            net_inputs.extend(last_states)
 
         return self.time_averaging(net_inputs)
 
     def reset_states(self):
+        """Reset time-averaging states."""
         self.time_averaging.reset_states()
 
 
 class HNSCell(tf.keras.layers.Layer):
+    r"""A RNN cell in the hub-and-spokes model. Defines the forward pass of a single time tick.
+
+    This cell contains one hub layer and more than one spoke layers.
+    The hub layer is a [MultiInputTimeAveraging][connectionist.layers.MultiInputTimeAveraging] layer,
+    and the spoke layers are [HNSSpoke][connectionist.layers.HNSSpoke] layers.
+
+    Args:
+        tau (float): Time-averaging parameter, from 0 to 1.
+        hub_name (str): Name of the hub layer.
+        hub_units (int): Number of units in the hub layer.
+        spoke_names (List[str]): List of names of the spoke layers.
+        spoke_units (List[int]): List of number of units in the spoke layers, length must match `spoke_names`.
+
+    """
+
     def __init__(
         self,
         tau: float,
@@ -729,6 +1111,7 @@ class HNSCell(tf.keras.layers.Layer):
         self.spoke_units = spoke_units
 
     def build(self, input_shape) -> None:
+        """Build the cell."""
 
         # Hub
         self.hub = MultiInputTimeAveraging(
@@ -738,6 +1121,7 @@ class HNSCell(tf.keras.layers.Layer):
             use_bias=True,
             name=self.hub_name,
         )
+
         self.w_hh = self.add_weight(
             shape=(self.hub_units, self.hub_units),
             initializer="random_normal",
@@ -747,7 +1131,7 @@ class HNSCell(tf.keras.layers.Layer):
 
         # Spokes
         for i, (name, units) in enumerate(zip(self.spoke_names, self.spoke_units)):
-            setattr(self, name, Spoke(tau=self.tau, units=units, name=name))
+            setattr(self, name, HNSSpoke(tau=self.tau, units=units, name=name))
 
             # Outgoing connection weights (w_sih)
             setattr(
@@ -813,21 +1197,18 @@ class HNSCell(tf.keras.layers.Layer):
         last_act_hub: tf.Tensor = None,
         last_act_spokes: Optional[Dict[str, tf.Tensor]] = None,
         return_internals: bool = False,
-    ) -> Tuple[tf.Tensor, Dict[str, tf.Tensor]]:
-        """Call the HNSCell.
+    ) -> Dict[str, tf.Tensor]:
+        """Forward pass of the HNSCell.
 
         Args:
-            inputs (dict): clamped inputs with spoke names as keys.
+            inputs (dict, optional): inputs to each spoke with spoke names as keys.
             last_act_hub (tf.Tensor): last activation of the hub.
             last_act_spokes (dict): last activations of the spokes with spoke names as keys.
-            return_internals (bool): whether to return the internal states of the spokes. (Default: False)
+            return_internals (bool): Whether to return intermediate inputs to each connection.
 
         Returns:
-            If `return_internals` is False:
-                act_hub (tf.Tensor): activation of the hub.
-                act_spokes (dict): activations of the spokes with spoke names as keys.
-
-            If `return_internals` is True:
+            outputs (Dict[str, tf.Tensor]): Activations in each layer `{"hub_name": ..., "spoke_name": }`,
+                if `return_internals=True`, also return intermediate inputs in each connection. E.g., `{"hub_name2spoke_name": last_act_hub @ w_{hs_i}, ...}`
 
         """
 
@@ -879,7 +1260,7 @@ class HNSCell(tf.keras.layers.Layer):
 
     @property
     def internals_names(self) -> List[str]:
-        """Return the names of the internal connections in a cell."""
+        """Return all the internal connection names."""
 
         all_layer_names = self.spoke_names + [self.hub_name]
         h2s = [f"{self.hub_name}2{name}" for name in self.spoke_names]
@@ -888,12 +1269,29 @@ class HNSCell(tf.keras.layers.Layer):
         return [*h2s, *s2h, *auto]
 
     def reset_states(self) -> None:
+        """Reset the time-averaging states in all hub and spokes."""
+
         self.hub.reset_states()
         for name in self.spoke_names:
             getattr(self, name).reset_states()
 
 
 class HNSLayer(tf.keras.layers.Layer):
+    """Hub-and-Spokes RNN Layer.
+
+    Unrolling the [HNSCell][connectionist.layers.HNSCell] for a fixed number of time steps.
+
+    See [Rogers et. al., 2004](https://doi.org/10.1037/0033-295X.111.1.205) for more details.
+
+    Args:
+        tau (float): Time constant of the time-averaging.
+        hub_name (str): Name of the hub layer.
+        hub_units (int): Number of units in the hub layer.
+        spoke_names (List[str]): Names of the spoke layers.
+        spoke_units (List[int]): Number of units in each spoke layer. Must be the same length as `spoke_names`.
+
+    """
+
     def __init__(
         self,
         tau: float,
@@ -908,6 +1306,8 @@ class HNSLayer(tf.keras.layers.Layer):
         self.spoke_names, self.spoke_units = spoke_names, spoke_units
 
     def build(self, input_shape) -> None:
+        """Build the HNSCell."""
+
         self.cell = HNSCell(
             tau=self.tau,
             hub_name=self.hub_name,
@@ -926,8 +1326,23 @@ class HNSLayer(tf.keras.layers.Layer):
         raise ValueError("No input is given, cannot infer batch size or max ticks.")
 
     def call(
-        self, inputs: Dict[str, tf.Tensor], return_internals: bool = False
+        self,
+        inputs: Optional[Dict[str, tf.Tensor]] = None,
+        return_internals: bool = False,
     ) -> Dict[str, tf.Tensor]:
+        """Forward pass: unroll the HNSCell for a fixed number of time steps.
+
+        The number of time steps is determined by axis 1 in the inputs.
+
+        Args:
+            inputs (Dict[str, tf.Tensor], optional): Inputs to the spokes (name as key). Assumes input is 0 if not given.
+            return_internals (bool): Whether to return intermediate inputs to each connection.
+
+        Returns:
+            Dict[str, tf.Tensor]: Activations of the hub and spokes, with layer names as keys.
+                If `return_internals` is True, also returns intermediate inputs to each connection.
+
+        """
 
         inputs = self.cell._validate_spoke_x(inputs)
         batch_size, max_ticks = self._get_batch_size_and_max_tick(inputs)

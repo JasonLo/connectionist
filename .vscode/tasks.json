@@ -1,0 +1,56 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Local build",
+            "type": "shell",
+            "command": "rm -r dist && python3 -m build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "options": {
+                "statusbar": {
+                    "label": "$(beaker) build"
+                }
+            },
+        },
+        {
+            "label": "Release-PyPI",
+            "type": "shell",
+            "command": "bash",
+            "args": [
+                "./scripts/release.sh"
+            ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "options": {
+                "statusbar": {
+                    "label": "$(play-circle) PyPI"
+                }
+            },
+        },
+        {
+            "label": "pub docs",
+            "type": "shell",
+            "command": "mkdocs",
+            "args": [
+                "gh-deploy",
+                "--force"
+            ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "options": {
+                "statusbar": {
+                    "label": "$(book) docs"
+                }
+            },
+        }
+    ]
+}

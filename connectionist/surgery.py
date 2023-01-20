@@ -29,11 +29,14 @@ def get_weights(model: tf.keras.Model, weight_name: str) -> tf.Tensor:
 
     # Abbreviation matching
     if len(matched) == 0:
-        matched = [
-            w
-            for w in model.weights
-            if model.weights_abbreviations[weight_name] in w.name
-        ]
+        try:
+            matched = [
+                w
+                for w in model.weights
+                if model.weights_abbreviations[weight_name] in w.name
+            ]
+        except AttributeError:
+            pass
 
     if len(matched) == 0:
         raise ValueError(f"Could not find weights for {weight_name}")
@@ -47,7 +50,17 @@ def get_weights(model: tf.keras.Model, weight_name: str) -> tf.Tensor:
 def copy_transplant(
     donor: tf.keras.Model, recipient: tf.keras.Model, weight_name: str
 ) -> None:
-    """Transplant weights from donor to recipient in weights that has matching shape."""
+    """Transplant all specified weights and biases from `donor` to `recipient`.
+
+    All weights and biases shapes must match.
+
+    Args:
+        donor (tf.keras.Model): The donor model.
+        recipient (tf.keras.Model): The recipient model.
+        weight_name (str): The name of the weights to transplant, can be full internal name,
+            partial internal name (will match with .endswith) or abbreviation if `model.weights_abbreviation` exists).
+
+    """
 
     w_recipient = get_weights(recipient, weight_name)
     w_donor = get_weights(donor, weight_name)
@@ -56,26 +69,36 @@ def copy_transplant(
         f"Transplanting: {w_donor.name}:{w_donor.shape} -> {w_recipient.name}: {w_recipient.shape}"
     )
 
-    assert (
-        w_donor.shape == w_recipient.shape
-    ), f"Shapes don't match: {w_donor.shape} != {w_recipient.shape}"
+    if w_donor.shape != w_recipient.shape:
+        raise ValueError(
+            f"Shapes don't match: {w_donor.shape} != {w_recipient.shape} for {w_donor.name} -> {w_recipient.name}"
+        )
 
     w_recipient.assign(w_donor)
 
 
 @dataclass
 class SurgeryPlan:
-    """A surgery plan for removing shrink_rate amount of the units in `target_layer`.
+    """A surgery plan for shrinking a layer, removing `shrink_rate` amount of the units in `layer`.
 
-    TODO: Support for enlargement surgery?
+    Reducing the units in a layer will also reduce the number units in all connected weights and bias.
+    The index of removal is random and shared across all weights and biases.
+
+    Args:
+        layer (str): The layer name to shrink. e.g.(hidden, phonology, cleanup in PMSP).
+        original_units (int): The original number of units in the layer.
+        shrink_rate (float): The shrink rate, between 0 and 1.
+        make_model_fn (Callable): A function that make the original and new model.
+
     """
 
     layer: str
     original_units: int
     shrink_rate: float
+    make_model_fn: Callable
 
-    def __post_init__(self):
-        """Validate the surgery plan."""
+    def __post_init__(self) -> None:
+        """Validate plan and random sample the indices of unit to keep."""
 
         if not (0 < self.shrink_rate < 1):
             raise ValueError(
@@ -94,14 +117,24 @@ class SurgeryPlan:
         self.keep_idx = sorted(random.sample(range(self.original_units), self.keep_n))
         print(f"Keep indices are: {self.keep_idx}")
 
-    def __repr__(self):
-        return f"SurgeryPlan(target_layer={self.layer}, original_units={self.original_units}, damage={self.shrink_rate}, keep_idx={self.keep_idx}, keep_n={self.keep_n})"
+    def __repr__(self) -> str:
+        return f"SurgeryPlan(layer={self.layer}, original_units={self.original_units}, damage={self.shrink_rate}, keep_idx={self.keep_idx}, keep_n={self.keep_n})"
 
 
-def make_recipient(model, surgery_plan: SurgeryPlan, make_model_fn: Callable):
-    """Make a recipient model according to surgery plan."""
+def make_recipient(
+    donor: tf.keras.Model, layer: str, keep_n: int, make_model_fn: Callable
+) -> tf.keras.Model:
+    """Make a recipient model according to donor and surgery plan for shrinking a layer.
 
-    config = model.get_config()
+    Args:
+        donor (tf.keras.Model): The donor model.
+        layer (str): The layer name to shrink. e.g.(hidden, phonology, cleanup in PMSP).
+        keep_n (int): The number of units to keep.
+        make_model_fn (Callable): A function that make the original and new model.
+
+    """
+
+    config = donor.get_config()
 
     to_config_key = {
         "hidden": "h_units",
@@ -109,61 +142,71 @@ def make_recipient(model, surgery_plan: SurgeryPlan, make_model_fn: Callable):
         "cleanup": "c_units",
     }
 
-    config[to_config_key[surgery_plan.layer]] = surgery_plan.keep_n
+    config[to_config_key[layer]] = keep_n
     print(f"New config: {config}")
     return make_model_fn(**config)
 
 
 class Surgeon:
-    """A class for transplanting weights from one model to another according to surgery_plan.
+    """A surgeon transplanting weights from one model to another according to a [SurgeryPlan][connectionist.surgery.SurgeryPlan].
+
+    The [SurgeryPlan][connectionist.surgery.SurgeryPlan] only specify where the shrinkage happens,
+    when calling [transplant][connectionist.surgery.Surgeon.transplant], it will:
+
+    - use [lesion_transplant][connectionist.surgery.Surgeon.lesion_transplant] to copy over the weights that requires shrinking.
+    - use [copy_transplant][connectionist.surgery.copy_transplant] on the remaining weights.
 
     Args:
-        surgery_plan: A surgery plan for the transplant (specifying where the damage happens).
+        surgery_plan (SurgeryPlan): A surgery plan for the transplant.
 
-    The `surgery_plan` specify where the shrinkage happens, it will move all related weights using `lesion_transplant()` method.
-    For other weights that are not related to the surgery_plan, it will just copy them over using `copy_transplant()` method.
+    !!! Example
+        ```python
+        import tensorflow as tf
+        from connectionist.data import ToyOP
+        from connectionist.models import PMSP
+        from connectionist.surgery import SurgeryPlan, Surgeon, make_recipient
 
-    Also see connectionist.models.PMSP.shrink_layer().
+        # Create model and train
+        data = ToyOP()
+        model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
 
-    Example:
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(),
+            loss=tf.keras.losses.BinaryCrossentropy(),
+        )
+        model.fit(data.x_train, data.y_train, epochs=10, batch_size=20)
 
-    ```python
+        # Create surgery plan and surgeon
+        plan = SurgeryPlan(layer='hidden', original_units=10, shrink_rate=0.3, make_model_fn=PMSP)
+        surgeon = Surgeon(surgery_plan=plan)
 
-    from connectionist.surgery import *
-    from connectionist.data import ToyOP
+        # Create recipient model and transplant weights
+        new_model = make_recipient(model=model, layer=plan.layer, keep_n=plan.keep_n, make_model_fn=plan.make_model_fn)
+        new_model.build(input_shape=model.pmsp._build_input_shape)
 
-    data = ToyOP()
-    donor_model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
-    y = donor_model(data.x_train)  # for instantiating the weights
+        # Transplant weights and biases
+        surgeon.transplant(donor=model, recipient=new_model)
+        ```
 
-    # Create surgery plan and surgeon
-    plan = SurgeryPlan(layer='hidden', original_units=10, shrink_rate=0.5)
-    surgeon = Surgeon(surgery_plan=plan)
-
-    # Create recipient model and transplant weights
-    new_model = make_recipient(model=donor_model, surgery_plan=plan, make_model_fn=PMSP)
-    new_model.build(input_shape=donor_model.pmsp._build_input_shape)
-    surgeon.transplant(donor=donor_model, recipient=new_model)
-    ```
-
+    Also see [connectionist.models.PMSP.shrink_layer][] for high-level API.
     """
 
     def __init__(self, surgery_plan: SurgeryPlan) -> None:
         self.plan = surgery_plan
 
     @staticmethod
-    def _validate_axis(
+    def _validate_axes(
         w_donor: tf.Tensor,
         w_recipient: tf.Tensor,
-        axis: List[int],
+        axes: List[int],
     ) -> None:
 
-        if not 0 < len(axis) <= 2:
-            raise ValueError(f"Axis must be of length 1 or 2, got {axis}")
+        if not 0 < len(axes) <= 2:
+            raise ValueError(f"Axis must be of length 1 or 2, got {axes}")
 
         # Check non self-connecting weights shapes
-        if len(axis) == 1 and len(w_donor.shape) > 1:
-            match_ax = 1 - axis[0]
+        if len(axes) == 1 and len(w_donor.shape) > 1:
+            match_ax = 1 - axes[0]
             if w_donor.shape[match_ax] != w_recipient.shape[match_ax]:
                 raise ValueError(
                     f"In {w_donor.name}, shapes don't match on axis {match_ax}: {w_donor.shape=}, {w_recipient.shape=}"
@@ -174,31 +217,45 @@ class Surgeon:
         donor: tf.keras.Model,
         recipient: tf.keras.Model,
         weight_name: str,
-        idx: List[int],
-        axis: List[int],
+        keep_idx: List[int],
+        axes: List[int],
     ) -> None:
-        """Transplant weights from donor to recipient in the weights that requires shrinking."""
+        """Transplant weights from donor to recipient in the weights that requires shrinking.
+
+        Args:
+            donor (tf.keras.Model): The donor model.
+            recipient (tf.keras.Model): The recipient model.
+            weight_name (str): The name of the weights to transplant.
+            keep_idx (List[int]): The indices to keep.
+            axes (List[int]): The axes to slice the weights, usually contains only 1 axis, but 2 when it is a self-connecting weight.
+        """
 
         w_recipient = get_weights(recipient, weight_name)
         w_donor = get_weights(donor, weight_name)
-        self._validate_axis(w_donor, w_recipient, axis=axis)
+        self._validate_axes(w_donor, w_recipient, axes=axes)
 
         print(
             f"Transplanting: {w_donor.name}:{w_donor.shape} -> {w_recipient.name}: {w_recipient.shape}"
         )
 
         w = tf.identity(w_donor)  # Copy the weights
-        for a in axis:
+        for a in axes:
             w = tf.gather(
-                w, indices=idx, axis=a
+                w, indices=keep_idx, axis=a
             )  # slice the weight in each connected axis
         w_recipient.assign(w)  # assign the weights to recipient
 
     def transplant(self, donor: tf.keras.Model, recipient: tf.keras.Model) -> None:
-        """Transplant all the weights from donor to recipient model."""
+        """Transplant all weights from donor to recipient model.
+
+        Args:
+            donor (tf.keras.Model): The donor model.
+            recipient (tf.keras.Model): The recipient model.
+
+        """
 
         # Execute lesion transplant (Move weights and remove a subset of units)
-        conn_locs = donor.connection_locs[self.plan.layer]
+        conn_locs = donor._connection_locs[self.plan.layer]
         weight_names = list(conn_locs.keys())
         axis = list(conn_locs.values())
 
@@ -207,11 +264,11 @@ class Surgeon:
                 donor=donor,
                 recipient=recipient,
                 weight_name=name,
-                idx=self.plan.keep_idx,
-                axis=ax,
+                keep_idx=self.plan.keep_idx,
+                axes=ax,
             )
 
-        # Execute simple transplant (Only move weights)
+        # Execute simple copy transplant in the remaining weights
         all_weights_names = list(donor.weights_abbreviations.keys())
         remaining_weights = [
             name for name in all_weights_names if name not in weight_names

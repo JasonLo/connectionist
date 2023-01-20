@@ -1,7 +1,77 @@
 site_name: Connectionist
-site_url: https://connectionist.readthedocs.io/en/latest/
 site_description: Documentation for connectionist python package
 site_author: Jason Lo
-theme: readthedocs
+site_url: https://connectionist.readthedocs.io/en/latest/
+repo_url: https://github.com/JasonLo/connectionist
+docs_dir: docs
 copyright: MIT License
 
+theme:
+  name: material
+  icon:
+    logo: octicons/share-android-16
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: blue grey
+      accent: blue grey
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.tabs
+    - navigation.instant
+    - content.code.copy
+extra_css: [extra.css]
+
+nav:
+- Home: index.md
+- Models:
+  - Overview: models/overview.md
+  - PMSP: models/PMSP.md
+  - HubAndSpokes: models/HubAndSpokes.md
+- Layers:
+  - Overview: layers/overview.md
+  - TimeAveragedDense: layers/TimeAveragedDense.md
+  - MultiInputTimeAveraging: layers/MultiInputTimeAveraging.md
+  - ZeroOutDense: layers/ZeroOutDense.md
+  - TimeAveragedRNNCell: layers/TimeAveragedRNNCell.md
+  - TimeAveragedRNN: layers/TimeAveragedRNN.md
+  - PMSPCell: layers/PMSPCell.md
+  - PMSPLayer: layers/PMSPLayer.md
+  - HNSSpoke: layers/HNSSpoke.md
+  - HNSCell: layers/HNSCell.md
+  - HNSLayer: layers/HNSLayer.md
+- Others:
+  - MaskedBinaryCrossEntropy: losses/MaskedBinaryCrossEntropy.md
+  - copy_transplant: surgery/copy_transplant.md
+  - SurgeryPlan: surgery/SurgeryPlan.md
+  - Surgeon: surgery/Surgeon.md
+  - make_recipient: surgery/make_recipient.md
+
+plugins:
+- search
+- mkdocstrings:
+    handlers:
+      python:
+        path: [connectionist]
+        options:
+          show_source: false
+markdown_extensions:
+- markdown_katex:
+    no_inline_svg: True
+    insert_fonts_css: True
+- admonition
+- pymdownx.details
+- pymdownx.superfences
+
+watch:
+- connectionist
+- docs

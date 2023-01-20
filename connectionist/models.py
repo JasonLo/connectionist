@@ -5,43 +5,45 @@ from connectionist.surgery import SurgeryPlan, Surgeon, make_recipient, copy_tra
 
 
 class PMSP(tf.keras.Model):
-    """PMSP sim 3 model. A recurrent neural network with hidden layer, phonology layer and cleanup layer. It takes orthography as input and outputs phonology.
+    """PMSP sim 3 model. A recurrent neural network with time-averaging input that contains 3 inter-connected layers: hidden, phonology, and cleanup.
 
-    See Plaut, McClelland, Seidenberg and Patterson (1996), simulation 3 for details.
+    See [Plaut, McClelland, Seidenberg and Patterson (1996)](https://www.cnbc.cmu.edu/~plaut/papers/abstracts/PlautETAL96PsyRev.wordReading.html), simulation 3.
+
+    This model provides extra functionality for "brain damage" experiments, including:
+
+    - [`shrink_layer`][connectionist.models.PMSP.shrink_layer]: Reduce the number of units in a layer.
+    - [`zero_out`][connectionist.models.PMSP.zero_out]: Write zero values to a portion of units in a weight matrix and make those units not trainable.
+    - [`cut_connections`][connectionist.models.PMSP.cut_connections]: Remove the specified connections.
+    - [`add_noise`][connectionist.models.PMSP.add_noise]: Add Gaussian noise to a layer.
+    - [`apply_l2`][connectionist.models.PMSP.apply_l2]: Apply L2 regularization to all trainable weights and biases.
 
     Args:
-        tau: the time constant (smaller time constant = slower temporal dynamics, tau in [0, 1])
-        h_units: the number of hidden units
-        p_units: the number of phonology units
-        c_units: the number of cleanup units
-        connections: the connections between layers, default to: ['oh', 'ph', 'hp', 'pp', 'cp', 'pc']
+        tau (float): Time-averaging parameter, from 0 to 1.
+        h_units (int): Number of units in the hidden layer.
+        p_units (int): Number of units in the phonological layer.
+        c_units (int): Number of units in the cleanup layer.
+        h_noise (float): Gaussian noise parameter (in stddev) for hidden layer.
+        p_noise (float): Gaussian noise parameter (in stddev) for phonological layer.
+        c_noise (float): Gaussian noise parameter (in stddev) for cleanup layer.
+        connections (List[str]): List of connections to use, each connection consists of two letters (from, to). Default is ["oh", "ph", "hp", "pp", "cp", "pc"].
+        zero_out_rates (Dict[str, float]): Dictionary of zero-out rates for each connection. Default is `{c: 0.0 for c in self.connections}`. See [PMSP][connectionist.models.PMSP] for more details.
+        l2 (float): L2 regularization parameter, apply to all trainable weights and biases.
 
-    Call args:
 
-        inputs: the input tensor, shape: (batch_size, time_steps, o_units)
-        return_internals: whether to return the internal dynamics, default to: False.
+    !!! Example
+        ```python
+        import tensorflow as tf
+        from connectionist.data import ToyOP
+        from connectionist.models import PMSP
 
-            If `return_internals`=`True`, the model will return a dictionary with all the internal dynamics. Including:
-                - activations in all layers (e.g., 'hidden')
-                - raw inputs in each connection (e.g., 'oh' = $o @ w_oh$)
-
-            If `return_internals`=`False` the model will return the phonology activation, i.e., $p$.
-
-    Example:
-
-    ```python
-    import tensorflow as tf
-    from connectionist.data import ToyOP
-    from connectionist.models import PMSP
-
-    data = ToyOP()
-    model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(),
-        loss=tf.keras.losses.BinaryCrossentropy(),
-    )
-    model.fit(data.x_train, data.y_train, epochs=3, batch_size=20)
-    ```
+        data = ToyOP()
+        model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(),
+            loss=tf.keras.losses.BinaryCrossentropy(),
+        )
+        model.fit(data.x_train, data.y_train, epochs=3, batch_size=20)
+        ```
 
     """
 
@@ -90,28 +92,65 @@ class PMSP(tf.keras.Model):
             l2=self.l2,
         )
 
+    def to_units(self, layer: str) -> int:
+        """Get the number of units in a target layer.
+
+        Args:
+            layer (str): the target layer, choose from ['hidden', 'phonology', 'cleanup']
+
+        Returns:
+            int: the number of units in the target layer
+        """
+
+        mapping = {
+            "hidden": self.h_units,
+            "phonology": self.p_units,
+            "cleanup": self.c_units,
+        }
+        return mapping[layer]
+
     @property
-    def all_layers_names(self) -> List[str]:
+    def _all_layers_names(self) -> List[str]:
+        """Returns a list of all layers names."""
         return self.pmsp.all_layers_names
 
     @property
-    def connection_locs(self) -> Dict[str, Dict[str, int]]:
-        """A map that shows which axis of a weight is connecting to a layer."""
+    def _connection_locs(self) -> Dict[str, Dict[str, int]]:
+        """A dictionary that maps layer name to all its dependent weights and biases."""
 
-        return {layer: self._find_conn_locs(layer) for layer in self.all_layers_names}
+        return {layer: self._find_conn_locs(layer) for layer in self._all_layers_names}
 
     @property
     def weights_abbreviations(self) -> Dict[str, str]:
-        """Weights name abbreviations. (e.g., w_oh, bias_hidden)."""
+        """Weight abbreviation to internal name mapping.
+
+        !!! note
+            Technically the full internal name will change when creating more than one instance of the same model.
+                As a workaround, we use the last section of the internal name here as a matching string.
+
+        """
 
         weights = {f"w_{w}": f"{w}/kernel:0" for w in self.connections}
 
-        biases = {f"bias_{layer}": f"{layer}/bias:0" for layer in self.all_layers_names}
+        biases = {
+            f"bias_{layer}": f"{layer}/bias:0" for layer in self._all_layers_names
+        }
         return {**weights, **biases}
 
     def call(
         self, inputs: tf.Tensor, training: bool = False, return_internals: bool = False
-    ) -> Union[tf.Tensor, Dict[str, tf.Tensor]]:
+    ) -> Dict[str, tf.Tensor]:
+        """Forward pass, identical to [PMSPLayer][connectionist.layers.PMSPLayer].
+
+        Args:
+            inputs (tf.Tensor): Input tensor.
+            training (bool): Whether the model is in training mode.
+            return_internals (bool): Whether to return intermediate inputs to each connection.
+
+        Returns:
+            outputs (Dict[str, tf.Tensor]): a dictionary that stores all outputs.
+        """
+
         return self.pmsp(inputs, training=training, return_internals=return_internals)
 
     def get_config(self) -> Dict[str, Union[float, int, list]]:
@@ -130,8 +169,16 @@ class PMSP(tf.keras.Model):
 
     # Miscellaneous internal methods
 
-    def _find_conn_locs(self, layer: str) -> Dict[str, int]:
-        """Find the connection locations of the target layer."""
+    def _find_conn_locs(self, layer: str) -> Dict[str, List[int]]:
+        """Find the connection locations of the target layer.
+
+        Args:
+            layer (str): Target layer name.
+
+        Returns:
+            connection_map (Dict[str, int]): A dictionary that maps weight name to the dimensions that connects to a `layer`.
+
+        """
 
         def find(l: List[str], prefix: str):
             """Locate connection by layer prefix."""
@@ -147,70 +194,60 @@ class PMSP(tf.keras.Model):
         return {**conn_weights, **conn_bias}
 
     def _validate_layer(self, layer: str) -> None:
-        """Validate the target layer."""
+        """Validate the input argument layer can be found in the model."""
 
-        if layer not in self.all_layers_names:
+        if layer not in self._all_layers_names:
             raise ValueError(
-                f"Unknown target layer: {layer}, please choose from {self.all_layers_names}"
+                f"Unknown target layer: {layer}, please choose from {self._all_layers_names}"
             )
 
     def _validate_connections(self, connections: List[str]) -> None:
+        """Validate the connections input argument can be found in the model."""
         if not all([c in self.connections for c in connections]):
             raise ValueError(
                 f"Unknown connections: {connections}, please choose from {self.connections}"
             )
 
-    def _to_units(self, layer: str) -> int:
-        """Get the number of units in the target layer.
-
-        Args:
-            layer: the target layer, choose from ['hidden', 'phonology', 'cleanup']
-        """
-
-        mapping = {
-            "hidden": self.h_units,
-            "phonology": self.p_units,
-            "cleanup": self.c_units,
-        }
-        return mapping[layer]
-
     # Extra methods for damaging the model
 
     def shrink_layer(self, layer: str, rate: float) -> tf.keras.Model:
-        """Shrink the weights of the target layer.
+        """Shrink the number of units in a layer, and all its dependent connections by random sampling.
 
         Args:
-            layer: the target layer, choose from ['hidden', 'phonology', 'cleanup']
-            rate: the shrink rate
+            layer (str): the target layer, choose from ['hidden', 'phonology', 'cleanup']
+            rate (float): the shrink rate
 
         Returns:
             A new model with the same architecture, but with new weights shapes that match with the shrank layer.
 
-        Example:
+        !!! Example
+            ```python
+            from connectionist.models import PMSP
 
-        ```python
-        from connectionist.data import ToyOP
-        from connectionist.models import PMSP
-
-        model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
-
-        # Build or call or fit a model to instantiate the weights
-        y = model(data.x_train)
-
-        new_model = model.shrink_layer('hidden', rate=0.5)
-        ```
+            model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+            model.build(input_shape=[1, 30, 10])
+            new_model = model.shrink_layer('hidden', rate=0.5)
+            ```
 
         """
 
         self._validate_layer(layer)
 
         plan = SurgeryPlan(
-            layer=layer, original_units=self._to_units(layer), shrink_rate=rate
+            layer=layer,
+            original_units=self.to_units(layer),
+            shrink_rate=rate,
+            make_model_fn=PMSP,
         )
         surgeon = Surgeon(surgery_plan=plan)
 
         # Make a new model with the same architecture, but with new weights shapes
-        new_model = make_recipient(model=self, surgery_plan=plan, make_model_fn=PMSP)
+        new_model = make_recipient(
+            donor=self,
+            layer=plan.layer,
+            keep_n=plan.keep_n,
+            make_model_fn=plan.make_model_fn,
+        )
         new_model.build(input_shape=self.pmsp._build_input_shape)
 
         surgeon.transplant(donor=self, recipient=new_model)
@@ -228,20 +265,29 @@ class PMSP(tf.keras.Model):
 
         return new_model
 
-    def zero_out(self, zero_out_rates: Dict[str, float]) -> tf.keras.Model:
+    def zero_out(self, rates: Dict[str, float]) -> tf.keras.Model:
         """Zero out weights of the target connections.
 
         Args:
-            zero_out_rates: the zero out rates for each connection. e.g., {'hc': 0.5, 'ph': 0.4}
-                            higher zero out rates means more weights will be zeroed out.
+            rates (Dict[str, float]): the zero out rates for each connection.
+                e.g., {'hc': 0.5, 'ph': 0.4}. Higher zero out rates means more weights will be zeroed out.
 
         Returns:
             A new model with the same architecture, but with new weights.
 
+        !!! Example
+            ```python
+            from connectionist.models import PMSP
+
+            model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+            model.build(input_shape=[1, 30, 10])
+            new_model = model.zero_out(rates={'hp': 0.5, 'pc': 0.4})
+            ```
+
         """
 
         model_config = self.get_config()
-        model_config["zero_out_rates"].update(zero_out_rates)
+        model_config["zero_out_rates"].update(rates)
         new_model = self._build_and_transplant(model_config)
         new_model.pmsp.cell.zero_out_weights()
         return new_model
@@ -250,10 +296,19 @@ class PMSP(tf.keras.Model):
         """Cut connections between two layers.
 
         Args:
-            connections: the connections to be cut, the connections most be found in the original model, i.e., in `model.connections`.
+            connections (List[str]): the connections to be cut, the connections must be found in the original model, i.e., in `model.connections`.
 
         Returns:
             A new model with the same architecture, but with new connections.
+
+        !!! Example
+            ```python
+            from connectionist.models import PMSP
+
+            model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+            model.build(input_shape=[1, 30, 10])
+            new_model = model.cut_connections(['pp', 'pc'])
+            ```
 
         """
 
@@ -271,23 +326,20 @@ class PMSP(tf.keras.Model):
         The noise is active in both training and inference.
 
         Args:
-            layer: the target layer, choose from ['hidden', 'phonology', 'cleanup']
-            stddev: the standard deviation of the noise
+            layer (str): the target layer, choose from ['hidden', 'phonology', 'cleanup']
+            stddev (float): the standard deviation of the noise
 
-        Example:
+        Returns:
+            A new model with the same architecture, but with new noise.
 
-        ```python
-        from connectionist.data import ToyOP
-        from connectionist.models import PMSP
+        !!! Example
+            ```python
+            from connectionist.models import PMSP
 
-        model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
-
-        # Build or call or fit a model to instantiate the weights
-        y = model(data.x_train)
-
-        new_model = model.add_noise('hidden', stddev=0.1)
-        ```
-
+            model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+            model.build(input_shape=[1, 30, 10])
+            new_model = model.add_noise('hidden', stddev=0.1)
+            ```
         """
 
         self._validate_layer(layer)
@@ -302,8 +354,24 @@ class PMSP(tf.keras.Model):
         model_config[noise_name] = model_config[noise_name] + stddev
         return self._build_and_transplant(model_config)
 
-    def add_l2(self, l2: float) -> tf.keras.Model:
-        """Add L2 regularization to all the weights and biases in the model."""
+    def apply_l2(self, l2: float) -> tf.keras.Model:
+        """Add L2 regularization to all the weights and biases in the model.
+
+        Args:
+            l2 (float): the L2 regularization rate.
+
+        Returns:
+            A new model with the same architecture, but with L2 regularization applied to all the weights and biases.
+
+        !!! Example
+            ```python
+            from connectionist.models import PMSP
+
+            model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+            model.build(input_shape=[1, 30, 10])
+            new_model = model.apply_l2(l2=0.1)
+            ```
+        """
 
         model_config = self.get_config()
         model_config.update(l2=l2)
@@ -319,6 +387,18 @@ class HubAndSpokes(tf.keras.Model):
         spoke_names: List[str],
         spoke_units: List[int],
     ) -> None:
+        """Hub-and-spokes model.
+
+        See [Rogers et. al., 2004](https://doi.org/10.1037/0033-295X.111.1.205) for more details.
+
+        Args:
+            tau (float): Time constant of the time-averaging.
+            hub_name (str): Name of the hub layer.
+            hub_units (int): Number of units in the hub layer.
+            spoke_names (List[str]): Names of the spoke layers.
+            spoke_units (List[int]): Number of units in each spoke layer. Must be the same length as `spoke_names`.
+
+        """
 
         super().__init__()
 
@@ -335,12 +415,35 @@ class HubAndSpokes(tf.keras.Model):
         )
 
     def call(
-        self, x: Dict[str, tf.Tensor], return_internals: bool = False
+        self, inputs: Dict[str, tf.Tensor], return_internals: bool = False
     ) -> Dict[str, tf.Tensor]:
-        return self.hns(x, return_internals=return_internals)
+        """Forward pass.
+
+        The number of time steps is determined by axis 1 in the inputs.
+
+        Args:
+            inputs (Dict[str, tf.Tensor], optional): Inputs to the spokes (name as key). Assumes input is 0 if not given.
+            return_internals (bool): Whether to return intermediate inputs to each connection.
+
+        Returns:
+            Dict[str, tf.Tensor]: Activations of the hub and spokes, with layer names as keys.
+                If `return_internals` is True, also returns intermediate inputs to each connection.
+
+        """
+        return self.hns(inputs, return_internals=return_internals)
 
     def train_step(self, data: Tuple[Dict[str, tf.Tensor]]) -> Dict[str, tf.Tensor]:
-        """Train the model for one step, return losses and metrics."""
+        """Train the model for one step.
+
+        Loss is cumulated over all y_train items.
+
+        Args:
+            data (Tuple[Dict[str, tf.Tensor]]): Tuple of (x_train, y_train).
+
+        Returns:
+            Dict[str, tf.Tensor]: metrics.
+
+        """
 
         x, y = data
 

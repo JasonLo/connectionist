@@ -2,11 +2,17 @@
 name = "connectionist"
 description = "Tools for classical connectionist models of reading with TensorFlow"
 readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
 dynamic = ["version"]
 authors = [
     { name = "Jason Lo", email = "lcmjlo@gmail.com" }
 ]
 dependencies = ["tensorflow==2.*"]
+
+[project.urls]
+Homepage = "https://github.com/jasonlo/connectionist"
+Documentation = "https://connectionist.readthedocs.io"
 
 [build-system]
 requires = ["hatchling"]
