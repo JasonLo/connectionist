@@ -93,6 +93,23 @@ class PMSP(tf.keras.Model):
             l2=self.l2,
         )
 
+    def to_units(self, layer: str) -> int:
+        """Get the number of units in a target layer.
+
+        Args:
+            layer (str): the target layer, choose from ['hidden', 'phonology', 'cleanup']
+
+        Returns:
+            int: the number of units in the target layer
+        """
+
+        mapping = {
+            "hidden": self.h_units,
+            "phonology": self.p_units,
+            "cleanup": self.c_units,
+        }
+        return mapping[layer]
+
     @property
     def _all_layers_names(self) -> List[str]:
         """Returns a list of all layers names."""
@@ -192,20 +209,6 @@ class PMSP(tf.keras.Model):
                 f"Unknown connections: {connections}, please choose from {self.connections}"
             )
 
-    def _to_units(self, layer: str) -> int:
-        """Get the number of units in the target layer.
-
-        Args:
-            layer: the target layer, choose from ['hidden', 'phonology', 'cleanup']
-        """
-
-        mapping = {
-            "hidden": self.h_units,
-            "phonology": self.p_units,
-            "cleanup": self.c_units,
-        }
-        return mapping[layer]
-
     # Extra methods for damaging the model
 
     def shrink_layer(self, layer: str, rate: float) -> tf.keras.Model:
@@ -224,6 +227,7 @@ class PMSP(tf.keras.Model):
         from connectionist.models import PMSP
 
         model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+        model.build(input_shape=[1, 30, 10])
         new_model = model.shrink_layer('hidden', rate=0.5)
         ```
 
@@ -232,12 +236,20 @@ class PMSP(tf.keras.Model):
         self._validate_layer(layer)
 
         plan = SurgeryPlan(
-            layer=layer, original_units=self._to_units(layer), shrink_rate=rate
+            layer=layer,
+            original_units=self.to_units(layer),
+            shrink_rate=rate,
+            make_model_fn=PMSP,
         )
         surgeon = Surgeon(surgery_plan=plan)
 
         # Make a new model with the same architecture, but with new weights shapes
-        new_model = make_recipient(model=self, surgery_plan=plan, make_model_fn=PMSP)
+        new_model = make_recipient(
+            donor=self,
+            layer=plan.layer,
+            keep_n=plan.keep_n,
+            make_model_fn=plan.make_model_fn,
+        )
         new_model.build(input_shape=self.pmsp._build_input_shape)
 
         surgeon.transplant(donor=self, recipient=new_model)
@@ -271,6 +283,7 @@ class PMSP(tf.keras.Model):
         from connectionist.models import PMSP
 
         model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+        model.build(input_shape=[1, 30, 10])
         new_model = model.zero_out(rates={'hp': 0.5, 'pc': 0.4})
         ```
 
@@ -297,6 +310,7 @@ class PMSP(tf.keras.Model):
         from connectionist.models import PMSP
 
         model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+        model.build(input_shape=[1, 30, 10])
         new_model = model.cut_connections(['pp', 'pc'])
         ```
 
@@ -328,6 +342,7 @@ class PMSP(tf.keras.Model):
         from connectionist.models import PMSP
 
         model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+        model.build(input_shape=[1, 30, 10])
         new_model = model.add_noise('hidden', stddev=0.1)
         ```
         """
@@ -359,6 +374,7 @@ class PMSP(tf.keras.Model):
         from connectionist.models import PMSP
 
         model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+        model.build(input_shape=[1, 30, 10])
         new_model = model.apply_l2(l2=0.1)
         """
 

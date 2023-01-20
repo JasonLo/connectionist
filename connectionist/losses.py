@@ -5,9 +5,9 @@ class MaskedBinaryCrossEntropy(tf.keras.losses.Loss):
     """Compute Binary Cross-Entropy with masking.
 
     Args:
-        mask_value (int): value in y_true to be masked, default is None.
-        name (str): name of the loss function, default is "masked_binary_crossentropy".
-        reduction (str): reduction method for the loss, default is "none".
+        mask_value (int, optional): value in y_true to be masked.
+        name (str, optional): name of the loss function.
+        reduction (str, optional): reduction method for the loss.
     """
 
     def __init__(
@@ -21,14 +21,24 @@ class MaskedBinaryCrossEntropy(tf.keras.losses.Loss):
         self.mask_value = mask_value
 
     def call(self, y_true: tf.Tensor, y_pred: tf.Tensor) -> tf.Tensor:
-        """Calculate masked binary cross-entropy.
+        r"""Calculate masked binary cross-entropy.
+
+        Define as:
+        ```math
+        H_p(q) = - \frac{1}{M} \sum_{i=1}^{N} m_i \cdot (y_i \cdot \log(p(y_i)) + (1-y_i) \cdot \log(1-p(y_i)))
+        ```
+        where $`y_i`$ is the target, and $`p(y_i)`$ is the prediction $`m_i`$ is the mask, and $`M`$ is the number of unmasked units.
+
+        !!! warning
+            "$`\cdot`$" is element-wise multiplication.
 
         Args:
             y_true (tf.Tensor): target y with shape (batch_size, seq_len, feature)
             y_pred (tf.Tensor): predicted y with shape (batch_size, seq_len, feature)
 
         Returns:
-            Loss value with shape (batch_size)
+            Loss (tf.Tensor): Loss values with shape (batch_size)
+
         """
 
         epsilon = tf.keras.backend.epsilon()  # very small value to avoid log(0)
