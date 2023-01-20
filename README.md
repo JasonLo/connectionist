@@ -1,10 +1,16 @@
 # Connectionist
 
 [![Pypi version](https://img.shields.io/pypi/v/connectionist.svg?style=flat&color=brightgreen)](https://pypi.org/project/connectionist/)
-[![Documentation Status](https://readthedocs.org/projects/connectionist/badge/?version=latest)](https://connectionist.readthedocs.io/en/latest/?badge=latest)
 [![License](https://img.shields.io/github/license/jasonlo/connectionist.svg?color=brightgreen)](https://github.com/JasonLo/connectionist/blob/main/LICENSE)
+[![Docs](https://img.shields.io/badge/docs-connectionist-4051b5)](https://jasonlo.github.io/connectionist/)
 
-Tools for classical connectionist models of reading with TensorFlow.
+**Connectionist** contains some tools for classical [connectionist models of reading](https://www.cnbc.cmu.edu/~plaut/papers/pdf/Plaut05chap.connModelsReading.pdf) in TensorFlow. This project is a course companion python library for [Contemporary neural networks for cognition and cognitive neuroscience](https://drive.google.com/drive/folders/1ZNmK-W8bk3iIH6M5cYzhO_XGhCrxFXzL).
+
+## Features
+
+- Ready-to-use models of reading in TensorFlow
+- Various "brain" (model) damaging APIs
+- Basic building blocks (layers) for connectionist models
 
 ## Requirements
 
@@ -36,15 +42,6 @@ model.fit(data.x_train, data.y_train, epochs=3, batch_size=20)
 model(data.x_train)
 ```
 
-## Modules
-
-- connectionist.data: Includes datasets for connectionist models of reading. Currently only have `ToyOP`, but will add more in the future.
-- connectionist.layers: Includes custom layers for connectionist models of reading in `tf.keras.layers.Layer` format.
-- connectionist.models: Includes ready-to-use connectionist models in `tf.keras.Model` format.
-- connectionist.losses: Includes custom losses functions for connectionist models of reading.
-- connectionist.surgery: Includes helper functions for "brain damage" experiments.
-
 ## Documentation
 
-[![Github](https://img.shields.io/badge/docs-Github.io-4051b5)](https://jasonlo.github.io/connectionist/)
-[![Read the Docs](https://img.shields.io/badge/docs-Read%20the%20Docs-4051b5)](https://connectionist.readthedocs.io/en/latest/)
+[https://jasonlo.github.io/connectionist/](https://jasonlo.github.io/connectionist/)

@@ -5,10 +5,7 @@ hide:
 
 # Welcome to Connectionist's documentation
 
-[![Github](https://img.shields.io/badge/Docs-Github.io-4051b5)](https://jasonlo.github.io/connectionist/)
-[![Read the Docs](https://img.shields.io/badge/Docs-Read%20the%20Docs-4051b5)](https://connectionist.readthedocs.io/en/latest/)
-
-**Connectionist** contains some tools for classical [connectionist models of reading](https://www.cnbc.cmu.edu/~plaut/papers/pdf/Plaut05chap.connModelsReading.pdf) with TensorFlow. This project is a course companion python library for the course [Contemporary neural networks for cognition and cognitive neuroscience](https://drive.google.com/drive/folders/1ZNmK-W8bk3iIH6M5cYzhO_XGhCrxFXzL).
+**Connectionist** contains some tools for classical [connectionist models of reading](https://www.cnbc.cmu.edu/~plaut/papers/pdf/Plaut05chap.connModelsReading.pdf) in TensorFlow. This project is a course companion python library for [Contemporary neural networks for cognition and cognitive neuroscience](https://drive.google.com/drive/folders/1ZNmK-W8bk3iIH6M5cYzhO_XGhCrxFXzL).
 
 ## Features
 
