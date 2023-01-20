@@ -30,21 +30,20 @@ class PMSP(tf.keras.Model):
         l2 (float): L2 regularization parameter, apply to all trainable weights and biases.
 
 
-    Example:
+    !!! Example
+        ```python
+        import tensorflow as tf
+        from connectionist.data import ToyOP
+        from connectionist.models import PMSP
 
-    ```python
-    import tensorflow as tf
-    from connectionist.data import ToyOP
-    from connectionist.models import PMSP
-
-    data = ToyOP()
-    model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
-    model.compile(
-        optimizer=tf.keras.optimizers.Adam(),
-        loss=tf.keras.losses.BinaryCrossentropy(),
-    )
-    model.fit(data.x_train, data.y_train, epochs=3, batch_size=20)
-    ```
+        data = ToyOP()
+        model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+        model.compile(
+            optimizer=tf.keras.optimizers.Adam(),
+            loss=tf.keras.losses.BinaryCrossentropy(),
+        )
+        model.fit(data.x_train, data.y_train, epochs=3, batch_size=20)
+        ```
 
     """
 
@@ -221,15 +220,14 @@ class PMSP(tf.keras.Model):
         Returns:
             A new model with the same architecture, but with new weights shapes that match with the shrank layer.
 
-        Example:
+        !!! Example
+            ```python
+            from connectionist.models import PMSP
 
-        ```python
-        from connectionist.models import PMSP
-
-        model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
-        model.build(input_shape=[1, 30, 10])
-        new_model = model.shrink_layer('hidden', rate=0.5)
-        ```
+            model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+            model.build(input_shape=[1, 30, 10])
+            new_model = model.shrink_layer('hidden', rate=0.5)
+            ```
 
         """
 
@@ -277,15 +275,14 @@ class PMSP(tf.keras.Model):
         Returns:
             A new model with the same architecture, but with new weights.
 
-        Example:
+        !!! Example
+            ```python
+            from connectionist.models import PMSP
 
-        ```python
-        from connectionist.models import PMSP
-
-        model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
-        model.build(input_shape=[1, 30, 10])
-        new_model = model.zero_out(rates={'hp': 0.5, 'pc': 0.4})
-        ```
+            model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+            model.build(input_shape=[1, 30, 10])
+            new_model = model.zero_out(rates={'hp': 0.5, 'pc': 0.4})
+            ```
 
         """
 
@@ -304,15 +301,14 @@ class PMSP(tf.keras.Model):
         Returns:
             A new model with the same architecture, but with new connections.
 
-        Example:
+        !!! Example
+            ```python
+            from connectionist.models import PMSP
 
-        ```python
-        from connectionist.models import PMSP
-
-        model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
-        model.build(input_shape=[1, 30, 10])
-        new_model = model.cut_connections(['pp', 'pc'])
-        ```
+            model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+            model.build(input_shape=[1, 30, 10])
+            new_model = model.cut_connections(['pp', 'pc'])
+            ```
 
         """
 
@@ -336,15 +332,14 @@ class PMSP(tf.keras.Model):
         Returns:
             A new model with the same architecture, but with new noise.
 
-        Example:
+        !!! Example
+            ```python
+            from connectionist.models import PMSP
 
-        ```python
-        from connectionist.models import PMSP
-
-        model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
-        model.build(input_shape=[1, 30, 10])
-        new_model = model.add_noise('hidden', stddev=0.1)
-        ```
+            model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+            model.build(input_shape=[1, 30, 10])
+            new_model = model.add_noise('hidden', stddev=0.1)
+            ```
         """
 
         self._validate_layer(layer)
@@ -368,14 +363,14 @@ class PMSP(tf.keras.Model):
         Returns:
             A new model with the same architecture, but with L2 regularization applied to all the weights and biases.
 
-        Example:
+        !!! Example
+            ```python
+            from connectionist.models import PMSP
 
-        ```python
-        from connectionist.models import PMSP
-
-        model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
-        model.build(input_shape=[1, 30, 10])
-        new_model = model.apply_l2(l2=0.1)
+            model = PMSP(tau=0.2, h_units=10, p_units=9, c_units=5)
+            model.build(input_shape=[1, 30, 10])
+            new_model = model.apply_l2(l2=0.1)
+            ```
         """
 
         model_config = self.get_config()

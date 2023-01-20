@@ -70,13 +70,12 @@ class TimeAveragedDense(tf.keras.layers.Dense):
     - $`b`$: bias vector, provided by this layer if `use_bias` is `True` (Default).
     - $`s_{t-1}`$: state at time $`t-1`$, stored in `self.states`.
 
-    Code example:
-
-    ```python
-    layer = TimeAveragedDense(
-        tau=0.1, average_at="before_activation", units=10, activation="sigmoid"
-        )
-    ```
+    !!! Example
+        ```python
+        layer = TimeAveragedDense(
+            tau=0.1, average_at="before_activation", units=10, activation="sigmoid"
+            )
+        ```
 
     ### Time-averaged output
 
@@ -97,13 +96,12 @@ class TimeAveragedDense(tf.keras.layers.Dense):
     - $`b`$: bias vector, provided by this layer if `use_bias` is `True` (Default).
     - $`a_{t-1}`$: activation at time $`t-1`$, stored in `self.states`.
 
-    Code example:
-
-    ```python
-    layer = TimeAveragedDense(
-        tau=0.1, average_at="after_activation", units=10, activation="sigmoid"
-        )
-    ```
+    !!! example
+        ```python
+        layer = TimeAveragedDense(
+            tau=0.1, average_at="after_activation", units=10, activation="sigmoid"
+            )
+        ```
 
     """
 
@@ -329,13 +327,12 @@ class MultiInputTimeAveraging(tf.keras.layers.Layer):
     - $`b`$: bias vector, provided by this layer if `use_bias` is `True` (Default).
     - $`s_{t-1}`$: state at time $`t-1`$, stored in `self.states`.
 
-    Code example:
-
-    ```python
-    layer = MultiInputTimeAveraging(
-        tau=0.1, average_at="before_activation", activation="sigmoid"
-        )
-    ```
+    !!! example
+        ```python
+        layer = MultiInputTimeAveraging(
+            tau=0.1, average_at="before_activation", activation="sigmoid"
+            )
+        ```
 
     ### Time-averaged output
 
@@ -355,13 +352,12 @@ class MultiInputTimeAveraging(tf.keras.layers.Layer):
     - $`b`$: bias vector, provided by this layer if `use_bias` is `True` (Default)
     - $`a_{t-1}`$: activation at time $`t-1`$, stored in `self.states`
 
-    Code example:
-
-    ```python
-    layer = MultiInputTimeAveraging(
-        tau=0.1, average_at="after_activation", activation="sigmoid"
-        )
-    ```
+    !!! example
+        ```python
+        layer = MultiInputTimeAveraging(
+            tau=0.1, average_at="after_activation", activation="sigmoid"
+            )
+        ```
 
 
     """
@@ -767,6 +763,11 @@ class PMSPCell(tf.keras.layers.Layer):
 
         !!! example
             if `layer = "hidden"`, return all connections that ends with "h", e.g.: `["oh", "ph"]`
+
+            ```python
+            cell.get_connections("hidden")
+            >>> ["oh", "ph"]
+            ```
         """
         return [conn for conn in self.connections if conn.endswith(layer[0])]
 
