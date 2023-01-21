@@ -1,6 +1,6 @@
 {
     "name": "connectionist",
-    "image": "tensorflow/tensorflow:2.11.0-gpu-jupyter",
+    "image": "tensorflow/tensorflow:2.9.3-gpu-jupyter",
     "runArgs": [
         "--gpus",
         "all"
@@ -9,22 +9,22 @@
     "workspaceFolder": "/connectionist",
     "remoteUser": "root",
     "extensions": [
-		"github.copilot",
-		"DavidAnson.vscode-markdownlint",
-		"Gruntfuggly.todo-tree",
-		"mhutchie.git-graph",
-		"ms-python.python",
-		"ms-python.vscode-pylance",
-		"ms-toolsai.jupyter-keymap",
-		"ms-toolsai.jupyter-renderers",
-		"ms-toolsai.jupyter",
-		"ms-vscode.live-server",
-		"hediet.vscode-drawio",
-		"GitHub.vscode-pull-request-github",
-		"GitHub.copilot-labs",
-		"streetsidesoftware.code-spell-checker",
-		"actboy168.tasks"
-	],
+        "github.copilot",
+        "DavidAnson.vscode-markdownlint",
+        "Gruntfuggly.todo-tree",
+        "mhutchie.git-graph",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-toolsai.jupyter-keymap",
+        "ms-toolsai.jupyter-renderers",
+        "ms-toolsai.jupyter",
+        "ms-vscode.live-server",
+        "hediet.vscode-drawio",
+        "GitHub.vscode-pull-request-github",
+        "GitHub.copilot-labs",
+        "streetsidesoftware.code-spell-checker",
+        "actboy168.tasks"
+    ],
     "settings": {
         "python.formatting.provider": "black",
         "python.linting.enabled": true,
