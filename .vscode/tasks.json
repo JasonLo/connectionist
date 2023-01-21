@@ -27,7 +27,7 @@
             },
             "options": {
                 "statusbar": {
-                    "label": "$(beaker) build"
+                    "label": "$(extensions) build"
                 }
             },
         },
