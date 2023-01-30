@@ -4,6 +4,7 @@ twine
 build
 mkdocs
 mkdocstrings-python
+mkdocs-material
 markdown-katex
 pytest
 pytest-cov
