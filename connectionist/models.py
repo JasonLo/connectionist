@@ -153,6 +153,18 @@ class PMSP(tf.keras.Model):
 
         return self.pmsp(inputs, training=training, return_internals=return_internals)
 
+    def fit(self, x=None, y=None, batch_size=None, **kwargs):
+
+        n = x.shape[0]
+
+        # check if n is divisible by batch_size to avoid tf.TensorArray bug
+        if n % batch_size != 0:
+            raise ValueError(
+                f"Number of samples ({n}) must be divisible by batch_size ({batch_size})."
+            )
+
+        super().fit(x=x, y=y, batch_size=batch_size, **kwargs)
+
     def get_config(self) -> Dict[str, Union[float, int, list]]:
         return dict(
             tau=self.tau,
@@ -431,6 +443,18 @@ class HubAndSpokes(tf.keras.Model):
 
         """
         return self.hns(inputs, return_internals=return_internals)
+
+    def fit(self, x=None, y=None, batch_size=None, **kwargs):
+
+        n = x.shape[0]
+
+        # check if n is divisible by batch_size to avoid tf.TensorArray bug
+        if n % batch_size != 0:
+            raise ValueError(
+                f"Number of samples ({n}) must be divisible by batch_size ({batch_size})."
+            )
+
+        super().fit(x=x, y=y, batch_size=batch_size, **kwargs)
 
     def train_step(self, data: Tuple[Dict[str, tf.Tensor]]) -> Dict[str, tf.Tensor]:
         """Train the model for one step.
