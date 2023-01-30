@@ -6,3 +6,5 @@ mkdocs
 mkdocstrings-python
 markdown-katex
 pytest
+pytest-cov
+hypothesis
