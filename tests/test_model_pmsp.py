@@ -34,7 +34,6 @@ def draw_batch_size(draw):
     return batch_size
 
 
-@settings(max_examples=3, deadline=None)
 @given(
     tau=st.floats(min_value=0.0, max_value=1.0),
     h_units=st.integers(min_value=1, max_value=100),
