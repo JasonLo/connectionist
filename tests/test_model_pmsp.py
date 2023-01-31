@@ -27,13 +27,6 @@ def draw_conn_rate(draw):
     return zero_out_rates
 
 
-@st.composite
-def draw_batch_size(draw):
-    batch_size = draw(st.integers(min_value=1, max_value=20))
-    assume(20 % batch_size == 0)
-    return batch_size
-
-
 @given(
     tau=st.floats(min_value=0.0, max_value=1.0),
     h_units=st.integers(min_value=1, max_value=100),
@@ -43,7 +36,7 @@ def draw_batch_size(draw):
     p_noise=st.floats(min_value=0.0, max_value=1.0),
     c_noise=st.floats(min_value=0.0, max_value=1.0),
     zero_out_rate=draw_conn_rate(),
-    batch_size=draw_batch_size(),
+    batch_size=st.sampled_from([1, 2, 4, 5, 10, 20]),
 )
 def test_training(
     tau, h_units, p_units, c_units, h_noise, p_noise, c_noise, zero_out_rate, batch_size

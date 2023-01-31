@@ -7,13 +7,6 @@ import tensorflow as tf
 
 
 @st.composite
-def draw_batch_size(draw):
-    batch_size = draw(st.integers(min_value=1, max_value=20))
-    assume(20 % batch_size == 0)
-    return batch_size
-
-
-@st.composite
 def acceptable_names(draw):
     name = draw(
         st.text(alphabet="abcdefghijklmnopqrstuvwxyz")
@@ -58,7 +51,7 @@ def draw_hs(draw):
 @given(
     tau=st.floats(min_value=0.0, max_value=1.0),
     hs=draw_hs(),
-    batch_size=draw_batch_size(),
+    batch_size=st.sampled_from([1, 2, 4, 5, 10, 20]),
 )
 def test_training(tau, hs, batch_size):
     """Test the training in HNS model."""
