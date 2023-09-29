@@ -1,6 +1,4 @@
-from itertools import product
-
-from hypothesis import given, settings, assume
+from hypothesis import given
 from hypothesis import strategies as st
 
 from connectionist.data import ToyOP
@@ -11,14 +9,12 @@ DATA = ToyOP()
 
 @st.composite
 def draw_conn_rate(draw):
-    available_connections = [f"{x[0]}{x[1]}" for x in product("hpc", "hpc")]
-    available_connections.extend(["oh", "op", "oc"])
+    core_connections = ["oh", "hp", "pc", "cp"]
+    optional_connections = ["op", "oc", "hh", "pp", "cc", "hc", "ph", "ch"]
     connections = draw(
-        st.lists(st.sampled_from(available_connections), min_size=1, max_size=12)
+        st.lists(st.sampled_from(optional_connections), min_size=1, max_size=12)
     )
-
-    # At least a full cycle of the network
-    assume(set(["oh", "hp", "pc", "cp"]).issubset(connections))
+    connections.extend(core_connections)
 
     zero_out_rates = {
         c: draw(st.floats(min_value=0.0, max_value=1.0)) for c in connections
